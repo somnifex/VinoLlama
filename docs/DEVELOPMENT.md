@@ -36,6 +36,17 @@ go test ./...
 After future frontend changes, run the available equivalent of:
 
 ```bash
+cd desktop/frontend
+npm install
 npm run typecheck
 npm run build
 ```
+
+Wails desktop shell checks:
+
+```bash
+cd desktop
+wails dev
+```
+
+`wails dev` requires the Wails CLI. Until it is installed, the Wails Go entry files remain behind the `wails` build tag and are not part of ordinary `go test ./...` runs.

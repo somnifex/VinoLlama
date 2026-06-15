@@ -1,2 +1,4 @@
 .gocache/
 .history/
+desktop/frontend/node_modules/
+desktop/frontend/dist/

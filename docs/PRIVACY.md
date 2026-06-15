@@ -16,6 +16,7 @@ Current defaults:
 - Removing a model deletes only the manifest by default.
 - Conversations are stored as local JSON files and are not uploaded or synced.
 - Runtime logs are local files only. When `models.directory` is configured, runtime logs are stored beside that model root under `logs/runtime`.
+- The desktop scaffold checks only the local VinoLlama API at `127.0.0.1:11435`.
 
 Only `vinollama rm <model> --delete-file` may delete a referenced GGUF file, and the CLI still requires confirmation unless `--yes` is passed.
 

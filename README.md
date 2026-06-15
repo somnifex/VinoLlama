@@ -12,7 +12,7 @@ Stage 3.5 baseline is implemented. Runtime status:
 - Model import: implemented
 - llama.cpp CPU backend management: implemented for configured llama.cpp-compatible server binaries; fake process integration tests cover startup, readiness, proxying, streaming, stop, idle cleanup, and failure state
 - llama.cpp OpenVINO backend management: partial until verified with a real OpenVINO-enabled llama.cpp server binary; command construction is capability-driven and does not hardcode unverified OpenVINO flags
-- Desktop GUI: planned
+- Desktop GUI: stage-6 scaffold implemented; full page integration planned
 
 Implemented:
 
@@ -42,10 +42,11 @@ Implemented:
 - Runtime restart endpoint
 - Local conversations API with Markdown export
 - Interactive CLI chat with non-streaming and streaming output
+- Wails/React/Vite desktop scaffold with local service status detection
 
 Planned later:
 
-- Wails desktop GUI
+- Full desktop GUI page integration
 
 ## Safe Defaults
 
@@ -70,6 +71,15 @@ go run ./cmd/vinollama import test-model ./testdata/model.gguf --reference
 go run ./cmd/vinollama list
 go run ./cmd/vinollama run test-model --backend cpu --stream
 go run ./cmd/vinollama rm test-model --yes
+```
+
+Run the stage-6 desktop frontend checks:
+
+```bash
+cd desktop/frontend
+npm install
+npm run typecheck
+npm run build
 ```
 
 `vinollama doctor` returns non-zero when no CPU or OpenVINO llama.cpp binary is configured. Configure a real llama.cpp server binary with `VINOLLAMA_LLAMA_CPU_BIN` or `VINOLLAMA_LLAMA_OPENVINO_BIN` to validate the zero-exit runtime path.
