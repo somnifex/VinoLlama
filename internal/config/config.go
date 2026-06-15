@@ -169,6 +169,17 @@ func ModelsDirectory(cfg Config) (string, error) {
 	return filepath.Join(root, "models"), nil
 }
 
+func ConversationsDirectory(cfg Config) (string, error) {
+	if cfg.Models.Directory != "" {
+		return filepath.Join(filepath.Dir(cfg.Models.Directory), "conversations"), nil
+	}
+	root, err := DefaultRootDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "conversations"), nil
+}
+
 func ValidBackend(value string) bool {
 	switch value {
 	case "auto", "openvino", "cpu":

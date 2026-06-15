@@ -14,6 +14,7 @@ Stage-1 defaults:
 - Default HTTP bind is `127.0.0.1`.
 - Default HTTP port is `11435`, not Ollama's `11434`.
 - Removing a model deletes only the manifest by default.
+- Conversations are stored as local JSON files and are not uploaded or synced.
 
 Only `vinollama rm <model> --delete-file` may delete a referenced GGUF file, and the CLI still requires confirmation unless `--yes` is passed.
 

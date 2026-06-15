@@ -202,6 +202,15 @@ func (m *Manager) StopModel(ctx context.Context, modelName string) (bool, error)
 	return true, firstErr
 }
 
+func (m *Manager) RestartModel(ctx context.Context, modelName string, options StartOptions) (*llamacpp.ProcessHandle, bool, error) {
+	stopped, err := m.StopModel(ctx, modelName)
+	if err != nil {
+		return nil, stopped, err
+	}
+	handle, err := m.GetOrStartModel(ctx, modelName, options)
+	return handle, stopped, err
+}
+
 func (m *Manager) ListProcesses() []llamacpp.ProcessHandle {
 	m.mu.Lock()
 	defer m.mu.Unlock()

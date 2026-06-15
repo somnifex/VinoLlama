@@ -23,23 +23,25 @@ POST   /api/generate
 POST   /api/chat
 GET    /api/runtime
 POST   /api/runtime/stop
+POST   /api/runtime/restart
 GET    /api/doctor
 GET    /api/settings
 POST   /api/settings
 GET    /api/logs
 POST   /api/models/import
-```
-
-Planned endpoints:
-
-```text
-POST   /api/runtime/restart
 GET    /api/conversations
 POST   /api/conversations
 GET    /api/conversations/{id}
 PUT    /api/conversations/{id}
 DELETE /api/conversations/{id}
 POST   /api/conversations/{id}/export
+```
+
+Planned endpoints:
+
+```text
+POST   /api/show extensions for richer GGUF metadata
+POST   /api/runtime/restart options for context/thread overrides
 ```
 
 Streaming APIs should use NDJSON unless a stronger reason is introduced and documented.
@@ -89,6 +91,15 @@ Request:
 ```json
 {
   "model": "test-model"
+}
+```
+
+`POST /api/runtime/restart` accepts:
+
+```json
+{
+  "model": "test-model",
+  "backend": "cpu"
 }
 ```
 
@@ -143,3 +154,39 @@ Unsafe public binds such as `0.0.0.0` and `::` are rejected. `privacy.telemetry=
 ## Logs
 
 `GET /api/logs?limit=200` returns recent runtime log tail lines from the managed llama.cpp runtime log directory. It reads local logs only and does not delete log files.
+
+## Conversations
+
+Conversations are saved as local JSON files under the VinoLlama conversations directory. They are not uploaded or synced.
+
+Create:
+
+```json
+POST /api/conversations
+{
+  "model": "test-model",
+  "messages": [
+    {"role": "user", "content": "Hello"}
+  ]
+}
+```
+
+List:
+
+```text
+GET /api/conversations
+```
+
+Read, update, and delete:
+
+```text
+GET    /api/conversations/{id}
+PUT    /api/conversations/{id}
+DELETE /api/conversations/{id}
+```
+
+Export Markdown:
+
+```text
+POST /api/conversations/{id}/export
+```

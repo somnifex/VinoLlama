@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"vinollama/internal/config"
+	"vinollama/internal/conversations"
 	"vinollama/internal/diagnostic"
 	"vinollama/internal/llamacpp"
 	"vinollama/internal/models"
@@ -24,10 +25,13 @@ type Server struct {
 	cfg     config.Config
 	manager *vinoruntime.Manager
 	store   models.Store
+	convs   conversations.Store
 }
 
 func NewHandler(cfg config.Config, manager *vinoruntime.Manager, store models.Store) http.Handler {
-	s := &Server{cfg: cfg, manager: manager, store: store}
+	conversationDir, _ := config.ConversationsDirectory(cfg)
+	convs, _ := conversations.NewStore(conversationDir)
+	s := &Server{cfg: cfg, manager: manager, store: store, convs: convs}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/tags", s.handleTags)
@@ -37,10 +41,13 @@ func NewHandler(cfg config.Config, manager *vinoruntime.Manager, store models.St
 	mux.HandleFunc("/api/chat", s.handleChat)
 	mux.HandleFunc("/api/runtime", s.handleRuntime)
 	mux.HandleFunc("/api/runtime/stop", s.handleRuntimeStop)
+	mux.HandleFunc("/api/runtime/restart", s.handleRuntimeRestart)
 	mux.HandleFunc("/api/doctor", s.handleDoctor)
 	mux.HandleFunc("/api/settings", s.handleSettings)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/models/import", s.handleModelsImport)
+	mux.HandleFunc("/api/conversations", s.handleConversations)
+	mux.HandleFunc("/api/conversations/", s.handleConversationByID)
 	return mux
 }
 
@@ -169,6 +176,41 @@ func (s *Server) handleRuntimeStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"stopped": stopped})
+}
+
+func (s *Server) handleRuntimeRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed.", "Only POST is supported.", "Use POST /api/runtime/restart.", "")
+		return
+	}
+	var req struct {
+		Model   string `json:"model"`
+		Backend string `json:"backend"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Runtime restart request could not be decoded.", err.Error(), "Send JSON like {\"model\":\"name\"}.", "")
+		return
+	}
+	if strings.TrimSpace(req.Model) == "" {
+		writeError(w, http.StatusBadRequest, "Runtime restart request is invalid.", "model is empty", "Pass the model name to restart.", "")
+		return
+	}
+	if strings.TrimSpace(req.Backend) != "" && !config.ValidBackend(strings.TrimSpace(req.Backend)) {
+		writeError(w, http.StatusBadRequest, "Runtime restart request is invalid.", fmt.Sprintf("unsupported backend %q", req.Backend), "Use one of: auto, openvino, cpu.", "")
+		return
+	}
+	if s.manager == nil {
+		writeError(w, http.StatusServiceUnavailable, "Runtime manager is unavailable.", "server was started without a runtime manager", "Restart VinoLlama with runtime initialization enabled.", "")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	handle, stopped, err := s.manager.RestartModel(ctx, req.Model, vinoruntime.StartOptions{Backend: strings.TrimSpace(req.Backend)})
+	if err != nil {
+		writeRuntimeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"restarted": true, "stopped_existing": stopped, "process": handle.Snapshot()})
 }
 
 func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
@@ -325,6 +367,115 @@ func (s *Server) handleModelsImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, manifest)
+}
+
+func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		list, err := s.convs.List()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Conversations could not be listed.", err.Error(), "Check conversation directory permissions.", "")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"conversations": list})
+	case http.MethodPost:
+		var req struct {
+			Title    string                  `json:"title"`
+			Model    string                  `json:"model"`
+			Messages []conversations.Message `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "Conversation request could not be decoded.", err.Error(), "Send a valid JSON conversation.", "")
+			return
+		}
+		conv, err := s.convs.Create(conversations.CreateRequest{Title: req.Title, Model: req.Model, Messages: req.Messages})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "Conversation could not be created.", err.Error(), "Check message roles and conversation directory permissions.", "")
+			return
+		}
+		writeJSON(w, http.StatusOK, conv)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed.", "Only GET and POST are supported.", "Use GET or POST /api/conversations.", "")
+	}
+}
+
+func (s *Server) handleConversationByID(w http.ResponseWriter, r *http.Request) {
+	id, action, ok := parseConversationPath(r.URL.Path)
+	if !ok {
+		writeError(w, http.StatusNotFound, "Conversation route was not found.", r.URL.Path, "Use /api/conversations/{id} or /api/conversations/{id}/export.", "")
+		return
+	}
+	if action == "export" {
+		s.handleConversationExport(w, r, id)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		conv, err := s.convs.Read(id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "Conversation could not be read.", err.Error(), "Check the conversation id.", fmt.Sprintf("id=%s", id))
+			return
+		}
+		writeJSON(w, http.StatusOK, conv)
+	case http.MethodPut:
+		var req struct {
+			Title    *string                 `json:"title"`
+			Model    *string                 `json:"model"`
+			Messages []conversations.Message `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "Conversation update could not be decoded.", err.Error(), "Send a valid JSON conversation patch.", "")
+			return
+		}
+		conv, err := s.convs.Update(id, conversations.UpdateRequest{Title: req.Title, Model: req.Model, Messages: req.Messages})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "Conversation could not be updated.", err.Error(), "Check the conversation id and message roles.", fmt.Sprintf("id=%s", id))
+			return
+		}
+		writeJSON(w, http.StatusOK, conv)
+	case http.MethodDelete:
+		if err := s.convs.Delete(id); err != nil {
+			writeError(w, http.StatusBadRequest, "Conversation could not be deleted.", err.Error(), "Check the conversation id.", fmt.Sprintf("id=%s", id))
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed.", "GET, PUT, and DELETE are supported.", "Use /api/conversations/{id}.", "")
+	}
+}
+
+func (s *Server) handleConversationExport(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed.", "Only POST is supported.", "Use POST /api/conversations/{id}/export.", "")
+		return
+	}
+	content, err := s.convs.ExportMarkdown(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "Conversation could not be exported.", err.Error(), "Check the conversation id.", fmt.Sprintf("id=%s", id))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "format": "markdown", "content": content})
+}
+
+func parseConversationPath(path string) (id, action string, ok bool) {
+	rest := strings.TrimPrefix(path, "/api/conversations/")
+	if rest == path || rest == "" {
+		return "", "", false
+	}
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+		return "", "", false
+	}
+	if len(parts) > 2 {
+		return "", "", false
+	}
+	if len(parts) == 2 {
+		if parts[1] != "export" {
+			return "", "", false
+		}
+		action = "export"
+	}
+	return parts[0], action, true
 }
 
 func modelNameFromRequest(r *http.Request) (string, error) {

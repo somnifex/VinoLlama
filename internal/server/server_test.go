@@ -259,6 +259,119 @@ func TestAPILogsReturnsRuntimeLogTail(t *testing.T) {
 	}
 }
 
+func TestAPIRuntimeRestartStartsModel(t *testing.T) {
+	handler, manager := newFakeAPIHandler(t)
+	defer manager.ShutdownAll(context.Background())
+	api := httptest.NewServer(handler)
+	defer api.Close()
+
+	resp, err := http.Post(api.URL+"/api/runtime/restart", "application/json", bytes.NewBufferString(`{"model":"test-model","backend":"cpu"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("restart status = %d", resp.StatusCode)
+	}
+	var payload struct {
+		Restarted       bool                   `json:"restarted"`
+		StoppedExisting bool                   `json:"stopped_existing"`
+		Process         llamacpp.ProcessHandle `json:"process"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Restarted || payload.Process.Model != "test-model" || payload.Process.State != llamacpp.ProcessReady {
+		t.Fatalf("restart payload = %#v", payload)
+	}
+}
+
+func TestAPIConversationsCRUDAndExport(t *testing.T) {
+	handler, manager := newFakeAPIHandler(t)
+	defer manager.ShutdownAll(context.Background())
+	api := httptest.NewServer(handler)
+	defer api.Close()
+
+	createBody := `{"model":"test-model","messages":[{"role":"user","content":"Hello conversation"}]}`
+	resp, err := http.Post(api.URL+"/api/conversations", "application/json", bytes.NewBufferString(createBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create status = %d", resp.StatusCode)
+	}
+	var created struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ID == "" || created.Title != "Hello conversation" {
+		t.Fatalf("created = %#v", created)
+	}
+
+	resp, err = http.Get(api.URL + "/api/conversations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var list struct {
+		Conversations []struct {
+			ID string `json:"id"`
+		} `json:"conversations"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Conversations) != 1 || list.Conversations[0].ID != created.ID {
+		t.Fatalf("list = %#v", list)
+	}
+
+	req, err := http.NewRequest(http.MethodPut, api.URL+"/api/conversations/"+created.ID, bytes.NewBufferString(`{"title":"Renamed"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update status = %d", resp.StatusCode)
+	}
+
+	resp, err = http.Post(api.URL+"/api/conversations/"+created.ID+"/export", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var exported struct {
+		Format  string `json:"format"`
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&exported); err != nil {
+		t.Fatal(err)
+	}
+	if exported.Format != "markdown" || !strings.Contains(exported.Content, "# Renamed") {
+		t.Fatalf("exported = %#v", exported)
+	}
+
+	req, err = http.NewRequest(http.MethodDelete, api.URL+"/api/conversations/"+created.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("delete status = %d", resp.StatusCode)
+	}
+}
+
 func newFakeAPIHandler(t *testing.T) (http.Handler, *vinoruntime.Manager) {
 	t.Helper()
 	exe, err := os.Executable()

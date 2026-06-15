@@ -37,6 +37,8 @@ Implemented:
 - `vinollama ps`
 - `vinollama stop <model>`
 - API endpoints for show/delete/settings/logs/model import
+- Runtime restart endpoint
+- Local conversations API with Markdown export
 
 Planned later:
 
