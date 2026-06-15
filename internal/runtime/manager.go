@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -79,9 +78,9 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 		options.Client = client
 	}
 	if options.LogDir == "" {
-		root, err := config.DefaultRootDir()
+		logDir, err := config.RuntimeLogDirectory(options.Config)
 		if err == nil {
-			options.LogDir = filepath.Join(root, "logs", "runtime")
+			options.LogDir = logDir
 		}
 	}
 	return &Manager{
@@ -98,7 +97,11 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 }
 
 func (m *Manager) ProxyGenerate(ctx context.Context, req llamacpp.GenerateRequest) (*llamacpp.GenerateResponse, error) {
-	handle, err := m.GetOrStartModel(ctx, req.Model, StartOptions{})
+	return m.ProxyGenerateWithOptions(ctx, req, StartOptions{})
+}
+
+func (m *Manager) ProxyGenerateWithOptions(ctx context.Context, req llamacpp.GenerateRequest, options StartOptions) (*llamacpp.GenerateResponse, error) {
+	handle, err := m.GetOrStartModel(ctx, req.Model, options)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +110,11 @@ func (m *Manager) ProxyGenerate(ctx context.Context, req llamacpp.GenerateReques
 }
 
 func (m *Manager) ProxyGenerateStream(ctx context.Context, req llamacpp.GenerateRequest) (<-chan llamacpp.StreamChunk, error) {
-	handle, err := m.GetOrStartModel(ctx, req.Model, StartOptions{})
+	return m.ProxyGenerateStreamWithOptions(ctx, req, StartOptions{})
+}
+
+func (m *Manager) ProxyGenerateStreamWithOptions(ctx context.Context, req llamacpp.GenerateRequest, options StartOptions) (<-chan llamacpp.StreamChunk, error) {
+	handle, err := m.GetOrStartModel(ctx, req.Model, options)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +123,11 @@ func (m *Manager) ProxyGenerateStream(ctx context.Context, req llamacpp.Generate
 }
 
 func (m *Manager) ProxyChat(ctx context.Context, req llamacpp.ChatRequest) (*llamacpp.ChatResponse, error) {
-	handle, err := m.GetOrStartModel(ctx, req.Model, StartOptions{})
+	return m.ProxyChatWithOptions(ctx, req, StartOptions{})
+}
+
+func (m *Manager) ProxyChatWithOptions(ctx context.Context, req llamacpp.ChatRequest, options StartOptions) (*llamacpp.ChatResponse, error) {
+	handle, err := m.GetOrStartModel(ctx, req.Model, options)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +136,11 @@ func (m *Manager) ProxyChat(ctx context.Context, req llamacpp.ChatRequest) (*lla
 }
 
 func (m *Manager) ProxyChatStream(ctx context.Context, req llamacpp.ChatRequest) (<-chan llamacpp.StreamChunk, error) {
-	handle, err := m.GetOrStartModel(ctx, req.Model, StartOptions{})
+	return m.ProxyChatStreamWithOptions(ctx, req, StartOptions{})
+}
+
+func (m *Manager) ProxyChatStreamWithOptions(ctx context.Context, req llamacpp.ChatRequest, options StartOptions) (<-chan llamacpp.StreamChunk, error) {
+	handle, err := m.GetOrStartModel(ctx, req.Model, options)
 	if err != nil {
 		return nil, err
 	}

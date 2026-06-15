@@ -180,6 +180,17 @@ func ConversationsDirectory(cfg Config) (string, error) {
 	return filepath.Join(root, "conversations"), nil
 }
 
+func RuntimeLogDirectory(cfg Config) (string, error) {
+	if cfg.Models.Directory != "" {
+		return filepath.Join(filepath.Dir(cfg.Models.Directory), "logs", "runtime"), nil
+	}
+	root, err := DefaultRootDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "logs", "runtime"), nil
+}
+
 func ValidBackend(value string) bool {
 	switch value {
 	case "auto", "openvino", "cpu":

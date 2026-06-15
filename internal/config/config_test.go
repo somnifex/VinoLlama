@@ -110,3 +110,18 @@ func TestLoadRejectsUnsafeBackendValue(t *testing.T) {
 		t.Fatal("expected invalid backend error")
 	}
 }
+
+func TestRuntimeLogDirectoryFollowsConfiguredModelRoot(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Defaults()
+	cfg.Models.Directory = filepath.Join(dir, "models")
+
+	got, err := RuntimeLogDirectory(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "logs", "runtime")
+	if got != want {
+		t.Fatalf("RuntimeLogDirectory() = %q, want %q", got, want)
+	}
+}

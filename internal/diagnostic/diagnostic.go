@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -63,7 +62,7 @@ func Run(ctx context.Context, cfg config.Config, configPath string, configFound 
 	report = append(report, checkLlamaBackends(ctx, cfg)...)
 	report = append(report, checkInternalPortAllocation(cfg))
 	report = append(report, checkModelDirectory(cfg))
-	report = append(report, checkRuntimeLogDirectory())
+	report = append(report, checkRuntimeLogDirectory(cfg))
 	if opts.Model != "" {
 		report = append(report, checkDoctorModel(ctx, cfg, opts)...)
 	}
@@ -226,12 +225,11 @@ func checkModelDirectory(cfg config.Config) Check {
 	return pass("model directory writable", dir)
 }
 
-func checkRuntimeLogDirectory() Check {
-	root, err := config.DefaultRootDir()
+func checkRuntimeLogDirectory(cfg config.Config) Check {
+	dir, err := config.RuntimeLogDirectory(cfg)
 	if err != nil {
 		return fail("runtime log directory writable", err.Error(), "Set the user home directory or run in a normal user session.")
 	}
-	dir := filepath.Join(root, "logs", "runtime")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fail("runtime log directory writable", err.Error(), "Fix permissions for the VinoLlama root directory.")
 	}

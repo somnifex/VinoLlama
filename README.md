@@ -8,7 +8,7 @@ VinoLlama is an independent project. It is not affiliated with Intel, OpenVINO, 
 
 Stage 3.5 baseline is implemented. Runtime status:
 
-- CLI: partial (`serve`, `ps`, `stop`, `doctor`, model import/list/rm implemented; interactive `run` planned)
+- CLI: partial (`serve`, `run`, `ps`, `stop`, `doctor`, model import/list/rm implemented)
 - Model import: implemented
 - llama.cpp CPU backend management: implemented for configured llama.cpp-compatible server binaries; fake process integration tests cover startup, readiness, proxying, streaming, stop, idle cleanup, and failure state
 - llama.cpp OpenVINO backend management: partial until verified with a real OpenVINO-enabled llama.cpp server binary; command construction is capability-driven and does not hardcode unverified OpenVINO flags
@@ -21,6 +21,8 @@ Implemented:
 - `vinollama import <name> <path-to-gguf>`
 - `vinollama list`
 - `vinollama rm <model>`
+- `vinollama run <model>`
+- `vinollama run <path-to-gguf>`
 - Safe default configuration loading
 - Basic structured logging
 - Basic local environment diagnostics
@@ -39,10 +41,10 @@ Implemented:
 - API endpoints for show/delete/settings/logs/model import
 - Runtime restart endpoint
 - Local conversations API with Markdown export
+- Interactive CLI chat with non-streaming and streaming output
 
 Planned later:
 
-- CLI chat
 - Wails desktop GUI
 
 ## Safe Defaults
@@ -66,10 +68,13 @@ go run ./cmd/vinollama doctor
 go run ./cmd/vinollama ps
 go run ./cmd/vinollama import test-model ./testdata/model.gguf --reference
 go run ./cmd/vinollama list
+go run ./cmd/vinollama run test-model --backend cpu --stream
 go run ./cmd/vinollama rm test-model --yes
 ```
 
 `vinollama doctor` returns non-zero when no CPU or OpenVINO llama.cpp binary is configured. Configure a real llama.cpp server binary with `VINOLLAMA_LLAMA_CPU_BIN` or `VINOLLAMA_LLAMA_OPENVINO_BIN` to validate the zero-exit runtime path.
+
+`vinollama run <model>` starts a local interactive chat using the runtime manager and the configured llama.cpp server binary. Type `/exit` or `/quit` to stop. Passing a local `.gguf` path imports it by reference before starting chat.
 
 Remove only the manifest by default:
 

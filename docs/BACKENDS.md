@@ -8,7 +8,7 @@ Implemented backend modes:
 - `openvino`: require a llama.cpp OpenVINO-enabled server binary.
 - `cpu`: require a llama.cpp CPU server binary.
 
-Stage 3 implements the backend interface, availability checks, cancellable process start/stop, and process health checks. The HTTP API and request forwarding are still planned.
+The current backend layer resolves llama.cpp server binaries, detects supported flags from local `--help` output, starts cancellable localhost llama.cpp processes, waits for readiness, proxies generate/chat requests, supports streaming, and stops processes explicitly or after idle timeout.
 
 ## llama.cpp OpenVINO Notes
 

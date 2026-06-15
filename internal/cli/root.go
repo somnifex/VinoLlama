@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -28,6 +30,11 @@ const version = "0.1.0"
 
 // Execute runs the VinoLlama command line interface.
 func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	return ExecuteWithIO(ctx, args, os.Stdin, stdout, stderr)
+}
+
+// ExecuteWithIO runs the VinoLlama command line interface with injectable stdin.
+func ExecuteWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("vinollama", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 
@@ -64,7 +71,7 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	case "import":
 		return runImport(stdout, stderr, *configPath, *backend, rest[1:])
 	case "rm":
-		return runRemove(stdout, stderr, *configPath, *backend, rest[1:])
+		return runRemove(stdin, stdout, stderr, *configPath, *backend, rest[1:])
 	case "ps":
 		return runPS(ctx, stdout, stderr, *configPath, *backend)
 	case "stop":
@@ -72,8 +79,7 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	case "serve":
 		return runServe(ctx, stdout, stderr, *configPath, *backend, *verbose)
 	case "run":
-		printActionableError(stderr, "Command is planned but not implemented in this phase.", fmt.Sprintf("`vinollama %s` belongs to a later development phase.", rest[0]), "Use `vinollama doctor` for the current stage-1 diagnostic command.")
-		return 2
+		return runInteractiveChat(ctx, stdin, stdout, stderr, *configPath, *backend, rest[1:])
 	default:
 		printActionableError(stderr, "Unknown command.", fmt.Sprintf("`%s` is not a VinoLlama command.", rest[0]), "Run `vinollama --help` to see supported commands.")
 		return 2
@@ -254,7 +260,7 @@ func runImport(stdout, stderr io.Writer, configPath, backend string, args []stri
 	return 0
 }
 
-func runRemove(stdout, stderr io.Writer, configPath, backend string, args []string) int {
+func runRemove(stdin io.Reader, stdout, stderr io.Writer, configPath, backend string, args []string) int {
 	name, deleteFile, yes, err := parseRemoveArgs(args)
 	if err != nil {
 		printActionableError(stderr, "Remove arguments are invalid.", err.Error(), "Use `vinollama rm <model> [--delete-file] [--yes]`.")
@@ -262,7 +268,7 @@ func runRemove(stdout, stderr io.Writer, configPath, backend string, args []stri
 	}
 	if !yes {
 		fmt.Fprintf(stdout, "Delete model record %q? Type yes to continue: ", name)
-		reader := bufio.NewReader(os.Stdin)
+		reader := bufio.NewReader(stdin)
 		answer, _ := reader.ReadString('\n')
 		answer = strings.ToLower(strings.TrimSpace(answer))
 		if answer != "yes" && answer != "y" {
@@ -289,6 +295,128 @@ func runRemove(stdout, stderr io.Writer, configPath, backend string, args []stri
 		fmt.Fprintln(stdout, "Model file left untouched.")
 	}
 	return 0
+}
+
+type runCommandOptions struct {
+	Model       string
+	Backend     string
+	ContextSize int
+	Threads     int
+	Stream      bool
+}
+
+func runInteractiveChat(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, configPath, globalBackend string, args []string) int {
+	options, err := parseRunArgs(args, globalBackend)
+	if err != nil {
+		printActionableError(stderr, "Run arguments are invalid.", err.Error(), "Use `vinollama run <model> [--backend auto|openvino|cpu] [--ctx-size N] [--threads N] [--stream]`.")
+		return 2
+	}
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		printActionableError(stderr, "Configuration could not be loaded.", err.Error(), "Check the config path and YAML syntax, or run without --config to use safe defaults.")
+		return 1
+	}
+	if options.Backend != "" {
+		loaded.Config.Runtime.Backend = options.Backend
+	}
+	store, err := storeFromLoadedConfig(loaded.Config)
+	if err != nil {
+		printActionableError(stderr, "Model store could not be opened.", err.Error(), "Check the config path, VINOLLAMA_MODELS, and model directory permissions.")
+		return 1
+	}
+	modelName, imported, err := resolveRunModel(store, options.Model)
+	if err != nil {
+		printActionableError(stderr, "Model could not be prepared for chat.", err.Error(), "Import the GGUF first with `vinollama import <name> <path-to-gguf>` or pass a local .gguf path.")
+		return 1
+	}
+	if imported {
+		fmt.Fprintf(stdout, "Imported %s by reference.\n", modelName)
+	}
+	manager, err := vinoruntime.NewManager(vinoruntime.ManagerOptions{Config: loaded.Config, Store: store})
+	if err != nil {
+		printActionableError(stderr, "Runtime manager could not be initialized.", err.Error(), "Check runtime configuration and model directory permissions.")
+		return 1
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = manager.ShutdownAll(shutdownCtx)
+	}()
+
+	startOptions := vinoruntime.StartOptions{
+		Backend:     options.Backend,
+		ContextSize: options.ContextSize,
+		Threads:     options.Threads,
+	}
+	messages := []llamacpp.ChatMessage{}
+	scanner := bufio.NewScanner(stdin)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+
+	fmt.Fprintf(stdout, "Running %s. Type /exit or /quit to stop.\n", modelName)
+	for {
+		if err := ctx.Err(); err != nil {
+			fmt.Fprintln(stdout)
+			printActionableError(stderr, "Chat was interrupted.", err.Error(), "Run `vinollama run <model>` again when you are ready to continue.")
+			return 130
+		}
+		fmt.Fprint(stdout, "> ")
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				printActionableError(stderr, "Chat input could not be read.", err.Error(), "Check terminal input and try again.")
+				return 1
+			}
+			fmt.Fprintln(stdout)
+			return 0
+		}
+		text := strings.TrimSpace(scanner.Text())
+		switch strings.ToLower(text) {
+		case "":
+			continue
+		case "/exit", "/quit":
+			return 0
+		}
+
+		messages = append(messages, llamacpp.ChatMessage{Role: "user", Content: text})
+		reply, err := runChatTurn(ctx, manager, modelName, messages, startOptions, options.Stream, stdout)
+		if err != nil {
+			printActionableError(stderr, "Chat request failed.", err.Error(), "Run `vinollama doctor --model "+modelName+" --start-check` and inspect runtime logs.")
+			return 1
+		}
+		messages = append(messages, llamacpp.ChatMessage{Role: "assistant", Content: reply})
+	}
+}
+
+func runChatTurn(ctx context.Context, manager *vinoruntime.Manager, modelName string, messages []llamacpp.ChatMessage, startOptions vinoruntime.StartOptions, stream bool, stdout io.Writer) (string, error) {
+	req := llamacpp.ChatRequest{Model: modelName, Messages: messages, Stream: stream}
+	if !stream {
+		resp, err := manager.ProxyChatWithOptions(ctx, req, startOptions)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintln(stdout, resp.Message.Content)
+		return resp.Message.Content, nil
+	}
+
+	ch, err := manager.ProxyChatStreamWithOptions(ctx, req, startOptions)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for chunk := range ch {
+		if chunk.Error != "" {
+			return b.String(), fmt.Errorf("%s", chunk.Error)
+		}
+		content := chunk.Message.Content
+		if content != "" {
+			fmt.Fprint(stdout, content)
+			b.WriteString(content)
+		}
+		if chunk.Done {
+			break
+		}
+	}
+	fmt.Fprintln(stdout)
+	return b.String(), nil
 }
 
 func runDoctor(ctx context.Context, stdout, stderr io.Writer, configPath, backend string, verbose bool, args []string) int {
@@ -341,10 +469,9 @@ Implemented commands:
   import <name> <path>    Import a GGUF model manifest
   list                    List local GGUF model manifests
   rm <model>              Remove a model manifest
-  serve                   Start the local HTTP API on 127.0.0.1:11435 by default
-
-Planned commands:
   run <model>             Start an interactive local chat
+  run <path-to-gguf>      Import a local GGUF by reference, then chat
+  serve                   Start the local HTTP API on 127.0.0.1:11435 by default
 
 Runtime commands:
   ps                      Show running model processes
@@ -468,6 +595,106 @@ func parseRemoveArgs(args []string) (name string, deleteFile bool, yes bool, err
 		return "", false, false, fmt.Errorf("expected model name, got %d argument(s)", len(positionals))
 	}
 	return positionals[0], deleteFile, yes, nil
+}
+
+func parseRunArgs(args []string, defaultBackend string) (runCommandOptions, error) {
+	options := runCommandOptions{Backend: defaultBackend}
+	var positionals []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--backend":
+			value, err := nextFlagValue(args, &i, arg)
+			if err != nil {
+				return runCommandOptions{}, err
+			}
+			if !config.ValidBackend(value) {
+				return runCommandOptions{}, fmt.Errorf("backend must be one of auto, openvino, cpu, got %q", value)
+			}
+			options.Backend = value
+		case "--ctx-size":
+			value, err := nextFlagValue(args, &i, arg)
+			if err != nil {
+				return runCommandOptions{}, err
+			}
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed <= 0 {
+				return runCommandOptions{}, fmt.Errorf("--ctx-size must be a positive integer")
+			}
+			options.ContextSize = parsed
+		case "--threads":
+			value, err := nextFlagValue(args, &i, arg)
+			if err != nil {
+				return runCommandOptions{}, err
+			}
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed < 0 {
+				return runCommandOptions{}, fmt.Errorf("--threads must be zero or a positive integer")
+			}
+			options.Threads = parsed
+		case "--stream":
+			options.Stream = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return runCommandOptions{}, fmt.Errorf("unknown run flag %q", arg)
+			}
+			positionals = append(positionals, arg)
+		}
+	}
+	if len(positionals) != 1 {
+		return runCommandOptions{}, fmt.Errorf("expected one model name or .gguf path, got %d argument(s)", len(positionals))
+	}
+	options.Model = positionals[0]
+	return options, nil
+}
+
+func nextFlagValue(args []string, index *int, flagName string) (string, error) {
+	if *index+1 >= len(args) || strings.HasPrefix(args[*index+1], "-") {
+		return "", fmt.Errorf("%s requires a value", flagName)
+	}
+	*index = *index + 1
+	return args[*index], nil
+}
+
+func resolveRunModel(store models.Store, modelSpec string) (string, bool, error) {
+	if strings.ToLower(filepath.Ext(modelSpec)) != ".gguf" {
+		clean, err := models.CleanName(modelSpec)
+		if err != nil {
+			return "", false, err
+		}
+		return clean, false, nil
+	}
+	absPath, err := filepath.Abs(modelSpec)
+	if err != nil {
+		return "", false, fmt.Errorf("resolve GGUF path: %w", err)
+	}
+	name := strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath))
+	cleanName, err := models.CleanName(name)
+	if err != nil {
+		return "", false, err
+	}
+	if manifest, err := store.ReadManifest(cleanName); err == nil {
+		manifestPath, _ := filepath.Abs(manifest.Path)
+		if samePath(manifestPath, absPath) {
+			return manifest.Name, false, nil
+		}
+		return "", false, fmt.Errorf("model %q already exists and points to %s", cleanName, manifest.Path)
+	}
+	manifest, err := store.Import(models.ImportRequest{Name: cleanName, Path: absPath, Mode: models.SourceReference})
+	if err != nil {
+		return "", false, err
+	}
+	return manifest.Name, true, nil
+}
+
+func samePath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	if strings.EqualFold(filepath.Clean(a), filepath.Clean(b)) {
+		return true
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 func formatBytes(size int64) string {
