@@ -74,7 +74,7 @@ go run ./cmd/vinollama rm test-model --yes
 
 `vinollama doctor` returns non-zero when no CPU or OpenVINO llama.cpp binary is configured. Configure a real llama.cpp server binary with `VINOLLAMA_LLAMA_CPU_BIN` or `VINOLLAMA_LLAMA_OPENVINO_BIN` to validate the zero-exit runtime path.
 
-`vinollama run <model>` starts a local interactive chat using the runtime manager and the configured llama.cpp server binary. Type `/exit` or `/quit` to stop. Passing a local `.gguf` path imports it by reference before starting chat.
+`vinollama run <model>` starts a local interactive chat using the runtime manager and the configured llama.cpp server binary. Type `/exit` or `/quit` to stop. Passing a local `.gguf` path imports it by reference before starting chat. During generation, the first Ctrl+C cancels the current turn and returns to the prompt; pressing Ctrl+C again exits.
 
 Remove only the manifest by default:
 

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -60,12 +61,20 @@ func ExecuteWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, 
 		return 2
 	}
 
-	switch rest[0] {
+	command := rest[0]
+	if command == "run" {
+		return runInteractiveChat(ctx, stdin, stdout, stderr, *configPath, *backend, rest[1:])
+	}
+
+	cmdCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt)
+	defer stopSignals()
+
+	switch command {
 	case "help":
 		printHelp(stdout)
 		return 0
 	case "doctor":
-		return runDoctor(ctx, stdout, stderr, *configPath, *backend, *verbose, rest[1:])
+		return runDoctor(cmdCtx, stdout, stderr, *configPath, *backend, *verbose, rest[1:])
 	case "list":
 		return runList(stdout, stderr, *configPath, *backend)
 	case "import":
@@ -73,15 +82,13 @@ func ExecuteWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, 
 	case "rm":
 		return runRemove(stdin, stdout, stderr, *configPath, *backend, rest[1:])
 	case "ps":
-		return runPS(ctx, stdout, stderr, *configPath, *backend)
+		return runPS(cmdCtx, stdout, stderr, *configPath, *backend)
 	case "stop":
-		return runStop(ctx, stdout, stderr, *configPath, *backend, rest[1:])
+		return runStop(cmdCtx, stdout, stderr, *configPath, *backend, rest[1:])
 	case "serve":
-		return runServe(ctx, stdout, stderr, *configPath, *backend, *verbose)
-	case "run":
-		return runInteractiveChat(ctx, stdin, stdout, stderr, *configPath, *backend, rest[1:])
+		return runServe(cmdCtx, stdout, stderr, *configPath, *backend, *verbose)
 	default:
-		printActionableError(stderr, "Unknown command.", fmt.Sprintf("`%s` is not a VinoLlama command.", rest[0]), "Run `vinollama --help` to see supported commands.")
+		printActionableError(stderr, "Unknown command.", fmt.Sprintf("`%s` is not a VinoLlama command.", command), "Run `vinollama --help` to see supported commands.")
 		return 2
 	}
 }
@@ -306,6 +313,13 @@ type runCommandOptions struct {
 }
 
 func runInteractiveChat(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, configPath, globalBackend string, args []string) int {
+	interrupts := make(chan os.Signal, 2)
+	signal.Notify(interrupts, os.Interrupt)
+	defer signal.Stop(interrupts)
+	return runInteractiveChatWithInterrupts(ctx, stdin, stdout, stderr, configPath, globalBackend, args, interrupts)
+}
+
+func runInteractiveChatWithInterrupts(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, configPath, globalBackend string, args []string, interrupts <-chan os.Signal) int {
 	options, err := parseRunArgs(args, globalBackend)
 	if err != nil {
 		printActionableError(stderr, "Run arguments are invalid.", err.Error(), "Use `vinollama run <model> [--backend auto|openvino|cpu] [--ctx-size N] [--threads N] [--stream]`.")
@@ -351,6 +365,7 @@ func runInteractiveChat(ctx context.Context, stdin io.Reader, stdout, stderr io.
 	messages := []llamacpp.ChatMessage{}
 	scanner := bufio.NewScanner(stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	lines, inputErrs := scanInputLines(scanner)
 
 	fmt.Fprintf(stdout, "Running %s. Type /exit or /quit to stop.\n", modelName)
 	for {
@@ -360,15 +375,15 @@ func runInteractiveChat(ctx context.Context, stdin io.Reader, stdout, stderr io.
 			return 130
 		}
 		fmt.Fprint(stdout, "> ")
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				printActionableError(stderr, "Chat input could not be read.", err.Error(), "Check terminal input and try again.")
-				return 1
-			}
+		text, ok, code := readChatInput(ctx, stdout, stderr, lines, inputErrs, interrupts)
+		if code != 0 {
+			return code
+		}
+		if !ok {
 			fmt.Fprintln(stdout)
 			return 0
 		}
-		text := strings.TrimSpace(scanner.Text())
+		text = strings.TrimSpace(text)
 		switch strings.ToLower(text) {
 		case "":
 			continue
@@ -377,12 +392,94 @@ func runInteractiveChat(ctx context.Context, stdin io.Reader, stdout, stderr io.
 		}
 
 		messages = append(messages, llamacpp.ChatMessage{Role: "user", Content: text})
-		reply, err := runChatTurn(ctx, manager, modelName, messages, startOptions, options.Stream, stdout)
+		reply, interrupted, exitRequested, err := runChatTurnWithInterrupts(ctx, manager, modelName, messages, startOptions, options.Stream, stdout, interrupts)
+		if exitRequested {
+			return 130
+		}
+		if interrupted {
+			messages = messages[:len(messages)-1]
+			continue
+		}
 		if err != nil {
 			printActionableError(stderr, "Chat request failed.", err.Error(), "Run `vinollama doctor --model "+modelName+" --start-check` and inspect runtime logs.")
 			return 1
 		}
 		messages = append(messages, llamacpp.ChatMessage{Role: "assistant", Content: reply})
+	}
+}
+
+func scanInputLines(scanner *bufio.Scanner) (<-chan string, <-chan error) {
+	lines := make(chan string)
+	errs := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		if err := scanner.Err(); err != nil {
+			errs <- err
+		}
+		close(errs)
+	}()
+	return lines, errs
+}
+
+func readChatInput(ctx context.Context, stdout, stderr io.Writer, lines <-chan string, inputErrs <-chan error, interrupts <-chan os.Signal) (string, bool, int) {
+	select {
+	case <-ctx.Done():
+		fmt.Fprintln(stdout)
+		printActionableError(stderr, "Chat was interrupted.", ctx.Err().Error(), "Run `vinollama run <model>` again when you are ready to continue.")
+		return "", false, 130
+	case <-interrupts:
+		fmt.Fprintln(stdout)
+		return "", false, 130
+	case line, ok := <-lines:
+		if ok {
+			return line, true, 0
+		}
+		if err, hasErr := <-inputErrs; hasErr && err != nil {
+			printActionableError(stderr, "Chat input could not be read.", err.Error(), "Check terminal input and try again.")
+			return "", false, 1
+		}
+		return "", false, 0
+	}
+}
+
+func runChatTurnWithInterrupts(ctx context.Context, manager *vinoruntime.Manager, modelName string, messages []llamacpp.ChatMessage, startOptions vinoruntime.StartOptions, stream bool, stdout io.Writer, interrupts <-chan os.Signal) (reply string, interrupted bool, exitRequested bool, err error) {
+	turnCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type turnResult struct {
+		reply string
+		err   error
+	}
+	resultCh := make(chan turnResult, 1)
+	go func() {
+		reply, err := runChatTurn(turnCtx, manager, modelName, messages, startOptions, stream, stdout)
+		resultCh <- turnResult{reply: reply, err: err}
+	}()
+
+	interrupted = false
+	for {
+		select {
+		case <-ctx.Done():
+			cancel()
+			return "", interrupted, true, ctx.Err()
+		case <-interrupts:
+			if interrupted {
+				cancel()
+				fmt.Fprintln(stdout)
+				return "", true, true, nil
+			}
+			interrupted = true
+			cancel()
+			fmt.Fprintln(stdout)
+			fmt.Fprintln(stdout, "Generation interrupted. Press Ctrl+C again to exit, or enter another prompt.")
+		case result := <-resultCh:
+			if interrupted {
+				return "", true, false, nil
+			}
+			return result.reply, false, false, result.err
+		}
 	}
 }
 

@@ -2,7 +2,7 @@
 
 VinoLlama is local-first and privacy-first.
 
-Stage-1 defaults:
+Current defaults:
 
 - No account system.
 - No cloud sync.
@@ -15,6 +15,7 @@ Stage-1 defaults:
 - Default HTTP port is `11435`, not Ollama's `11434`.
 - Removing a model deletes only the manifest by default.
 - Conversations are stored as local JSON files and are not uploaded or synced.
+- Runtime logs are local files only. When `models.directory` is configured, runtime logs are stored beside that model root under `logs/runtime`.
 
 Only `vinollama rm <model> --delete-file` may delete a referenced GGUF file, and the CLI still requires confirmation unless `--yes` is passed.
 

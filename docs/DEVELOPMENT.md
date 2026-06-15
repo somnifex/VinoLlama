@@ -23,7 +23,7 @@ go run ./cmd/vinollama stop test-model
 
 Runtime/backend changes must also be covered by fake llama.cpp process or server tests when no real llama.cpp binary is available.
 
-`vinollama run` supports multi-turn interactive chat, `/exit` and `/quit`, direct `.gguf` paths imported by reference, `--backend`, `--ctx-size`, `--threads`, and `--stream`.
+`vinollama run` supports multi-turn interactive chat, `/exit` and `/quit`, direct `.gguf` paths imported by reference, `--backend`, `--ctx-size`, `--threads`, and `--stream`. At the prompt, Ctrl+C exits. During generation, the first Ctrl+C cancels the current turn and the second Ctrl+C exits.
 
 Do not commit real model files, API keys, generated secrets, or large binaries.
 

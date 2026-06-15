@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -166,6 +167,67 @@ func TestRunStreamsWithFakeLlamaServer(t *testing.T) {
 	}
 }
 
+func TestRunFirstInterruptStopsGeneration(t *testing.T) {
+	t.Setenv("VINOLLAMA_FAKE_CHAT_DELAY", "500ms")
+	configPath, modelPath := writeCLIChatConfig(t)
+	var stdout, stderr bytes.Buffer
+	importCode := Execute(context.Background(), []string{"--config", configPath, "import", "test-model", modelPath, "--reference"}, &stdout, &stderr)
+	if importCode != 0 {
+		t.Fatalf("import code = %d, want 0; stdout:\n%s\nstderr:\n%s", importCode, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	interrupts := make(chan os.Signal, 2)
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		interrupts <- os.Interrupt
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	code := runInteractiveChatWithInterrupts(ctx, strings.NewReader("hello\n/exit\n"), &stdout, &stderr, configPath, "", []string{"test-model", "--backend", "cpu"}, interrupts)
+
+	if code != 0 {
+		t.Fatalf("run code = %d, want 0; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Generation interrupted") {
+		t.Fatalf("run output missing interruption notice:\n%s", stdout.String())
+	}
+}
+
+func TestRunSecondInterruptExits(t *testing.T) {
+	t.Setenv("VINOLLAMA_FAKE_CHAT_DELAY", "500ms")
+	configPath, modelPath := writeCLIChatConfig(t)
+	var stdout, stderr bytes.Buffer
+	importCode := Execute(context.Background(), []string{"--config", configPath, "import", "test-model", modelPath, "--reference"}, &stdout, &stderr)
+	if importCode != 0 {
+		t.Fatalf("import code = %d, want 0; stdout:\n%s\nstderr:\n%s", importCode, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	interrupts := make(chan os.Signal, 2)
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		interrupts <- os.Interrupt
+		time.Sleep(100 * time.Millisecond)
+		interrupts <- os.Interrupt
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	inputReader, inputWriter := io.Pipe()
+	defer inputReader.Close()
+	defer inputWriter.Close()
+	go func() {
+		_, _ = fmt.Fprintln(inputWriter, "hello")
+	}()
+	code := runInteractiveChatWithInterrupts(ctx, inputReader, &stdout, &stderr, configPath, "", []string{"test-model", "--backend", "cpu"}, interrupts)
+
+	if code != 130 {
+		t.Fatalf("run code = %d, want 130; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+}
+
 func writeCLIChatConfig(t *testing.T) (string, string) {
 	t.Helper()
 	exe, err := os.Executable()
@@ -222,6 +284,9 @@ func runCLIFakeLlamaServer() {
 		}
 		var body bytes.Buffer
 		_, _ = body.ReadFrom(r.Body)
+		if delay, _ := time.ParseDuration(os.Getenv("VINOLLAMA_FAKE_CHAT_DELAY")); delay > 0 {
+			time.Sleep(delay)
+		}
 		if strings.Contains(body.String(), `"stream":true`) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":"fake "}}]}`)
