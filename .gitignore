@@ -1,4 +1,9 @@
 .gocache/
 .history/
+.claude/
 desktop/frontend/node_modules/
 desktop/frontend/dist/
+desktop/frontend/wailsjs/
+desktop/frontend/package.json.md5
+desktop/build/bin/
+desktop/build/windows/

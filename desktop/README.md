@@ -4,7 +4,7 @@ This directory contains the VinoLlama desktop shell.
 
 Current scope:
 
-- Wails v2 project metadata in `wails.json`.
+- Wails v2 CLI installed. `wails build` produces `build/bin/VinoLlama.exe`.
 - React + TypeScript + Vite frontend in `frontend/`.
 - Local service status detection through `http://127.0.0.1:11435/api/version`.
 - Runtime process table through `GET /api/runtime` when the local API is running.
@@ -40,7 +40,7 @@ wails dev
 wails build
 ```
 
-The Wails Go entry files are behind the `wails` build tag so normal backend checks such as `go test ./...` continue to work before the Wails CLI is installed.
+The `wails build` output is at `build/bin/VinoLlama.exe`.
 
 Logo assets:
 

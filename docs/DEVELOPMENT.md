@@ -55,7 +55,7 @@ desktop/build/appicon.png
 
 When changing brand assets, update `docs/BRANDING.md`, run the frontend checks, and visually verify both light and dark themes.
 
-Wails desktop shell checks:
+Wails desktop shell checks (v2.12.0):
 
 ```bash
 cd desktop
@@ -64,4 +64,14 @@ wails dev
 wails build
 ```
 
-`wails dev` and `wails build` require the Wails CLI. Until it is installed, record `wails version` as unavailable, keep the Wails Go entry files behind the `wails` build tag, and use `go test ./...` plus the frontend `npm test`, `npm run typecheck`, and `npm run build` checks as the desktop verification baseline.
+`wails build` produces `desktop/build/bin/VinoLlama.exe`. The `//go:build wails` tag has been removed from desktop Go files; no conditional build tags are required.
+
+Cross-platform build scripts with optional flags:
+
+```bash
+# Windows (PowerShell)
+./scripts/build.ps1 --skip-tests --skip-frontend --skip-desktop --clean
+
+# Linux/macOS (bash)
+./scripts/build.sh --skip-tests --skip-frontend --skip-desktop --clean
+```
