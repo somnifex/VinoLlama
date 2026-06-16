@@ -12,7 +12,7 @@ Stage 3.5 baseline is implemented. Runtime status:
 - Model import: implemented
 - llama.cpp CPU backend management: implemented for configured llama.cpp-compatible server binaries; fake process integration tests cover startup, readiness, proxying, streaming, stop, idle cleanup, and failure state
 - llama.cpp OpenVINO backend management: partial until verified with a real OpenVINO-enabled llama.cpp server binary; command construction is capability-driven and does not hardcode unverified OpenVINO flags
-- Desktop GUI: stage-6 scaffold implemented; full page integration planned
+- Desktop GUI: stage-8 API integration implemented; Chat, Models, Runtime, Settings, Doctor, Logs, and local conversation workflows are connected
 
 Implemented:
 
@@ -42,11 +42,18 @@ Implemented:
 - Runtime restart endpoint
 - Local conversations API with Markdown export
 - Interactive CLI chat with non-streaming and streaming output
-- Wails/React/Vite desktop scaffold with local service status detection
+- Wails/React/Vite desktop shell with Chat, Models, Runtime, Settings, Doctor, and Logs views
+- Desktop Chat streaming through `/api/chat`
+- Desktop model import through `/api/models/import`
+- Desktop runtime stop/restart through `/api/runtime/stop` and `/api/runtime/restart`
+- Desktop settings patch through `/api/settings`
+- Desktop conversation list/read/save/update/delete through `/api/conversations`
+- Desktop conversation Markdown export through `/api/conversations/{id}/export`
+- Desktop doctor/log copy and log filtering
 
 Planned later:
 
-- Full desktop GUI page integration
+- Wails packaging once the Wails CLI and desktop runtime dependencies are installed locally
 
 ## Safe Defaults
 

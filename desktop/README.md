@@ -8,8 +8,15 @@ Current scope:
 - React + TypeScript + Vite frontend in `frontend/`.
 - Local service status detection through `http://127.0.0.1:11435/api/version`.
 - Runtime process table through `GET /api/runtime` when the local API is running.
+- Stage-7 desktop workspace with Chat, Models, Runtime, Settings, Doctor, and Logs views.
+- Modern local-model-studio layout inspired by the simplicity of Ollama and the workstation density of LM Studio, without copying their branding or proprietary UI.
+- Stage-8 API integration for chat streaming, model import, model selection, runtime stop, runtime restart, settings patching, doctor report copy, log filtering/copying, and local conversation list/read/save/update/delete/export.
 
 The desktop frontend is a local API client. It does not upload models, prompts, logs, or conversations.
+
+Conversation export copies a Markdown export from the local API to the clipboard. Conversations remain stored by the backend in the local VinoLlama data directory.
+
+Settings changes currently follow the backend behavior: they update the running in-process configuration and the response indicates whether a restart may be required. They are not persisted to `config.yaml` yet.
 
 Development commands:
 
