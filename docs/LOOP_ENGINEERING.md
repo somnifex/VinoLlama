@@ -1,6 +1,7 @@
 # Loop Engineering for VinoLlama
 
 
+
 VinoLlama development uses Loop Engineering: a controlled engineering loop that turns each coding task into a measurable cycle.
 
 The goal is not to make the agent produce more code. The goal is to make the agent produce code that can be inspected, verified, repaired, and trusted.
@@ -94,6 +95,7 @@ curl http://127.0.0.1:11435/api/version
 Frontend:
 
 ```bash
+npm test
 npm run typecheck
 npm run build
 ```
@@ -385,6 +387,7 @@ internal/backend/
 Must run available frontend checks:
 
 ```bash
+npm test
 npm run typecheck
 npm run build
 ```
@@ -446,6 +449,7 @@ Scope:
 * Backend documentation
 * Development documentation
 * Privacy documentation
+* Branding documentation
 * Troubleshooting
 
 May edit:
@@ -460,6 +464,7 @@ Must verify:
 * Commands in docs match actual CLI/API
 * Unimplemented features are marked planned/TODO
 * Privacy claims match implementation
+* Brand/logo claims do not imply third-party endorsement
 
 Output:
 
@@ -484,6 +489,7 @@ Scope:
 * External downloads
 * Binary execution
 * Secret handling
+* Brand assets
 
 May edit:
 
@@ -493,6 +499,7 @@ internal/server/
 internal/logging/
 internal/models/
 docs/PRIVACY.md
+docs/BRANDING.md
 ```
 
 May block merge if it finds:
@@ -505,6 +512,7 @@ May block merge if it finds:
 * API key in source
 * Deleting external GGUF files by default
 * Logging full prompts/conversations by default
+* Brand assets that imply third-party endorsement or hidden cloud features
 
 Output:
 

@@ -38,15 +38,30 @@ After future frontend changes, run the available equivalent of:
 ```bash
 cd desktop/frontend
 npm install
+npm test
 npm run typecheck
 npm run build
 ```
+
+Desktop frontend tests use Vitest, jsdom, and Testing Library. Current coverage focuses on the user-facing chat shell, light/dark theme switching, the collapsible chat settings sidebar, local conversation restore, and ensuring the per-conversation system prompt is sent to the local API without including the UI welcome text.
+
+Desktop brand assets live in:
+
+```text
+desktop/frontend/src/assets/vinollama-logo.png
+desktop/frontend/public/vinollama-logo.png
+desktop/build/appicon.png
+```
+
+When changing brand assets, update `docs/BRANDING.md`, run the frontend checks, and visually verify both light and dark themes.
 
 Wails desktop shell checks:
 
 ```bash
 cd desktop
+wails version
 wails dev
+wails build
 ```
 
-`wails dev` requires the Wails CLI. Until it is installed, the Wails Go entry files remain behind the `wails` build tag and are not part of ordinary `go test ./...` runs.
+`wails dev` and `wails build` require the Wails CLI. Until it is installed, record `wails version` as unavailable, keep the Wails Go entry files behind the `wails` build tag, and use `go test ./...` plus the frontend `npm test`, `npm run typecheck`, and `npm run build` checks as the desktop verification baseline.

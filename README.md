@@ -1,18 +1,20 @@
 # VinoLlama
 
+![VinoLlama logo](desktop/frontend/public/vinollama-logo.png)
+
 VinoLlama is a local-first LLM chat tool for Intel laptops and Intel processors. It is designed to manage local GGUF models and llama.cpp processes, preferring the llama.cpp OpenVINO backend with CPU fallback.
 
 VinoLlama is an independent project. It is not affiliated with Intel, OpenVINO, Ollama, or llama.cpp maintainers.
 
 ## Current Status
 
-Stage 3.5 baseline is implemented. Runtime status:
+Stage 9 desktop quality baseline is implemented. Runtime status:
 
 - CLI: partial (`serve`, `run`, `ps`, `stop`, `doctor`, model import/list/rm implemented)
 - Model import: implemented
 - llama.cpp CPU backend management: implemented for configured llama.cpp-compatible server binaries; fake process integration tests cover startup, readiness, proxying, streaming, stop, idle cleanup, and failure state
 - llama.cpp OpenVINO backend management: partial until verified with a real OpenVINO-enabled llama.cpp server binary; command construction is capability-driven and does not hardcode unverified OpenVINO flags
-- Desktop GUI: stage-8 API integration implemented; Chat, Models, Runtime, Settings, Doctor, Logs, and local conversation workflows are connected
+- Desktop GUI: stage-9 React/Vite quality baseline implemented; Chat, Models, Runtime, Settings, Doctor, Logs, local conversation workflows, light/dark theme, generated project logo, and initial frontend tests are connected
 
 Implemented:
 
@@ -50,6 +52,10 @@ Implemented:
 - Desktop conversation list/read/save/update/delete through `/api/conversations`
 - Desktop conversation Markdown export through `/api/conversations/{id}/export`
 - Desktop doctor/log copy and log filtering
+- Desktop light/dark theme switching
+- Desktop collapsible chat settings sidebar with backend, context, temperature, Top P, threads, and system prompt controls
+- Project logo assets embedded in the desktop frontend and Wails app icon path
+- Vitest/Testing Library desktop frontend tests
 
 Planned later:
 
@@ -65,9 +71,19 @@ Planned later:
 
 VinoLlama does not upload models, prompts, conversations, or diagnostics by default.
 
+## Documentation
+
+- `docs/API.md`: local HTTP API contract.
+- `docs/BACKENDS.md`: llama.cpp CPU/OpenVINO backend behavior.
+- `docs/BRANDING.md`: logo assets and brand safety rules.
+- `docs/DEVELOPMENT.md`: development and verification commands.
+- `docs/LOOP_ENGINEERING.md`: required engineering loop.
+- `docs/MULTI_AGENT_CONSTRAINTS.md`: collaboration boundaries for agents.
+- `docs/PRIVACY.md`: privacy defaults and local-first guarantees.
+
 ## Development
 
-Run the stage-3.5 checks:
+Run the backend and CLI checks:
 
 ```bash
 go test ./...
@@ -80,14 +96,26 @@ go run ./cmd/vinollama run test-model --backend cpu --stream
 go run ./cmd/vinollama rm test-model --yes
 ```
 
-Run the stage-6 desktop frontend checks:
+Run the desktop frontend checks:
 
 ```bash
 cd desktop/frontend
 npm install
+npm test
 npm run typecheck
 npm run build
 ```
+
+Wails packaging checks require the Wails CLI:
+
+```bash
+cd desktop
+wails version
+wails dev
+wails build
+```
+
+If `wails` is unavailable, use the frontend and Go checks above as the current verification baseline and record the missing CLI as an environment limitation.
 
 `vinollama doctor` returns non-zero when no CPU or OpenVINO llama.cpp binary is configured. Configure a real llama.cpp server binary with `VINOLLAMA_LLAMA_CPU_BIN` or `VINOLLAMA_LLAMA_OPENVINO_BIN` to validate the zero-exit runtime path.
 
@@ -113,6 +141,8 @@ Environment overrides supported in stage 2:
 - `VINOLLAMA_LOG_LEVEL`
 
 OpenVINO-specific llama.cpp environment variables are passed through to child processes, including `GGML_OPENVINO_DEVICE` and `GGML_OPENVINO_STATEFUL_EXECUTION`.
+
+Branding and logo usage are documented in `docs/BRANDING.md`.
 
 Runtime configuration keys added in stage 3.5:
 

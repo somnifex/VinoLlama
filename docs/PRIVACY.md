@@ -16,8 +16,12 @@ Current defaults:
 - Removing a model deletes only the manifest by default.
 - Conversations are stored as local JSON files and are not uploaded or synced.
 - Runtime logs are local files only. When `models.directory` is configured, runtime logs are stored beside that model root under `logs/runtime`.
-- The desktop scaffold checks only the local VinoLlama API at `127.0.0.1:11435`.
+- The desktop app checks only the local VinoLlama API at `127.0.0.1:11435`.
+- The generated project logo is bundled as a local static asset. It does not trigger runtime network requests.
+- Conversation Markdown export is copied to the local clipboard by the desktop UI; it is not uploaded or synced.
 
 Only `vinollama rm <model> --delete-file` may delete a referenced GGUF file, and the CLI still requires confirmation unless `--yes` is passed.
 
 Future features must keep telemetry disabled by default and must not log full prompts or full conversations by default.
+
+Frontend test dependencies are development-only dependencies. They are not part of the runtime privacy model.

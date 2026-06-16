@@ -8,8 +8,9 @@ This document defines how multiple coding agents collaborate on VinoLlama.
 - Backend Agent: Go CLI, API, config, model manifest, runtime, diagnostics, logging.
 - Desktop Agent: Wails, React, TypeScript, GUI layout, GUI API integration.
 - QA Agent: test gaps, regression cases, edge cases, cross-platform checks.
-- Docs Agent: README and docs accuracy.
+- Docs Agent: README, docs accuracy, branding documentation.
 - Security/Privacy Agent: network binding, telemetry, logs, file deletion, downloads, secrets.
+- Brand/Logo assets are treated as documentation and privacy-relevant when they could imply third-party endorsement or cloud behavior.
 
 ## Parallelization
 
@@ -57,3 +58,12 @@ Security/Privacy Agent must review:
 - command construction
 - public network binding
 - accidental prompt logging
+- brand assets that could imply third-party endorsement or hidden cloud behavior
+
+## Branding ownership
+
+Desktop Agent may update embedded logo usage in `desktop/`.
+
+Docs Agent owns `docs/BRANDING.md` and must keep logo paths accurate.
+
+Security/Privacy Agent may block brand assets that imply official endorsement, subscription/cloud behavior, telemetry, or remote marketplace functionality.

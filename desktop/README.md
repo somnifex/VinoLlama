@@ -1,6 +1,6 @@
 # VinoLlama Desktop
 
-This directory contains the stage-6 desktop scaffold.
+This directory contains the VinoLlama desktop shell.
 
 Current scope:
 
@@ -13,6 +13,8 @@ Current scope:
 - Light and dark desktop themes.
 - Collapsible chat settings sidebar for backend, context size, temperature, Top P, threads, and per-conversation system prompt.
 - Stage-8 API integration for chat streaming, model import, model selection, runtime stop, runtime restart, settings patching, doctor report copy, log filtering/copying, and local conversation list/read/save/update/delete/export.
+- Stage-9 frontend quality baseline with Vitest/Testing Library tests.
+- Generated project logo embedded in the React sidebar, Vite favicon, and Wails app icon source path.
 
 The desktop frontend is a local API client. It does not upload models, prompts, logs, or conversations.
 
@@ -25,6 +27,7 @@ Development commands:
 ```bash
 cd desktop/frontend
 npm install
+npm test
 npm run typecheck
 npm run build
 ```
@@ -38,3 +41,13 @@ wails build
 ```
 
 The Wails Go entry files are behind the `wails` build tag so normal backend checks such as `go test ./...` continue to work before the Wails CLI is installed.
+
+Logo assets:
+
+```text
+frontend/src/assets/vinollama-logo.png
+frontend/public/vinollama-logo.png
+build/appicon.png
+```
+
+Logo generation and brand constraints are documented in `../docs/BRANDING.md`.

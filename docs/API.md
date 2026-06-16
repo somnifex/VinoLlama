@@ -1,6 +1,6 @@
-# VinoLlama API
+# API
 
-The stage 3.5 HTTP API is implemented for the local runtime path. It is served by:
+The VinoLlama HTTP API is local-only by default and is served by:
 
 ```bash
 vinollama serve
@@ -44,7 +44,9 @@ POST   /api/show extensions for richer GGUF metadata
 POST   /api/runtime/restart options for context/thread overrides
 ```
 
-Streaming APIs should use NDJSON unless a stronger reason is introduced and documented.
+Streaming APIs use newline-delimited JSON (NDJSON).
+
+All examples assume the default base URL `http://127.0.0.1:11435`.
 
 ## Generate
 
@@ -76,11 +78,14 @@ Request:
 {
   "model": "test-model",
   "messages": [
+    {"role": "system", "content": "Answer briefly."},
     {"role": "user", "content": "Hello"}
   ],
   "stream": false
 }
 ```
+
+The desktop UI stores per-conversation system prompts as a `system` message when saving a conversation and sends that message to `/api/chat`. UI welcome text is not sent to the model.
 
 ## Runtime
 
@@ -103,7 +108,16 @@ Request:
 }
 ```
 
-Errors are structured JSON with `what`, `reason`, `fix`, and `details` fields.
+Errors are structured JSON with `what`, `reason`, `fix`, and `details` fields:
+
+```json
+{
+  "what": "Runtime could not start.",
+  "reason": "llama.cpp server binary was not found.",
+  "fix": "Set VINOLLAMA_LLAMA_CPU_BIN or VINOLLAMA_LLAMA_OPENVINO_BIN.",
+  "details": ""
+}
+```
 
 ## Models
 
@@ -151,6 +165,8 @@ The default behavior deletes only the manifest. `delete_file=true` is required b
 
 Unsafe public binds such as `0.0.0.0` and `::` are rejected. `privacy.telemetry=true` is rejected because telemetry is not implemented and remains disabled.
 
+The desktop chat settings sidebar uses this endpoint for backend, context size, temperature, Top P, and threads. These settings currently apply to the running in-process configuration, not to a persistent config file.
+
 ## Logs
 
 `GET /api/logs?limit=200` returns recent runtime log tail lines from the managed llama.cpp runtime log directory. It reads local logs only and does not delete log files.
@@ -166,6 +182,7 @@ POST /api/conversations
 {
   "model": "test-model",
   "messages": [
+    {"role": "system", "content": "Answer briefly."},
     {"role": "user", "content": "Hello"}
   ]
 }
@@ -190,3 +207,5 @@ Export Markdown:
 ```text
 POST /api/conversations/{id}/export
 ```
+
+The desktop UI copies the Markdown export to the clipboard. The API does not upload or sync conversation data.

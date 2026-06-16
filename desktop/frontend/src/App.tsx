@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import logoUrl from "./assets/vinollama-logo.png";
 import {
   ChatMessage,
   ConversationSummary,
@@ -113,9 +114,7 @@ export default function App() {
     <main className="app-shell" data-theme={theme}>
       <aside className="sidebar" aria-label="Primary">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            VL
-          </span>
+          <img className="brand-mark" src={logoUrl} alt="VinoLlama logo" width="34" height="34" />
           <div>
             <strong>VinoLlama</strong>
             <span>local model studio</span>

@@ -1,4 +1,4 @@
-# VinoLlama Backends
+# Backends
 
 VinoLlama manages llama.cpp processes instead of reimplementing inference.
 
@@ -8,7 +8,7 @@ Implemented backend modes:
 - `openvino`: require a llama.cpp OpenVINO-enabled server binary.
 - `cpu`: require a llama.cpp CPU server binary.
 
-The current backend layer resolves llama.cpp server binaries, detects supported flags from local `--help` output, starts cancellable localhost llama.cpp processes, waits for readiness, proxies generate/chat requests, supports streaming, and stops processes explicitly or after idle timeout.
+The backend layer resolves llama.cpp server binaries, detects supported flags from local `--help` output, starts cancellable localhost llama.cpp processes, waits for readiness, proxies generate/chat requests, supports streaming, and stops processes explicitly or after idle timeout.
 
 ## llama.cpp OpenVINO Notes
 
@@ -32,15 +32,16 @@ VinoLlama starts llama.cpp with localhost binding by default:
 
 Keep context size conservative on laptop and edge devices, then increase it after `vinollama doctor` and runtime testing look healthy.
 
-# llama.cpp Backend Management
+## llama.cpp Backend Management
 
-Stage 3.5 makes llama.cpp backend support real enough to discover, start, health-check, reuse, proxy, stream, and stop external llama.cpp server processes. VinoLlama still does not reimplement inference.
+VinoLlama can discover, start, health-check, reuse, proxy, stream, and stop external llama.cpp server processes. VinoLlama still does not reimplement inference.
 
 Current implementation status:
 
 - CPU backend management is implemented for configured llama.cpp-compatible server binaries and covered by fake process integration tests.
 - OpenVINO backend management uses the same resolver, capability detector, command builder, process manager, and proxy path, but remains hardware/binary dependent until validated with a real OpenVINO-enabled llama.cpp server binary.
 - OpenVINO-specific flags are not hardcoded; they must be detected from `--help` or provided explicitly through extra args.
+- The desktop Runtime and Chat views display the active backend state from the local API.
 
 VinoLlama manages llama.cpp through a runtime manager.
 
@@ -72,6 +73,7 @@ OpenVINO behavior:
 - if unavailable, fallback to CPU;
 - fallback must be visible in CLI, API and GUI;
 - doctor must explain why OpenVINO is unavailable.
+- real OpenVINO readiness remains dependent on a locally configured OpenVINO-enabled llama.cpp server binary.
 
 CPU behavior:
 
@@ -108,3 +110,14 @@ runtime:
 ```
 
 `extra_openvino_args` and `extra_cpu_args` are for explicit user-provided advanced flags. By default, VinoLlama only passes flags detected from the local llama.cpp `--help` output. If `allow_unverified_flags=true`, VinoLlama may pass unknown flags, but `vinollama doctor` must warn about the risk.
+
+## Verification
+
+Run the general backend checks after backend changes:
+
+```bash
+go test ./...
+go run ./cmd/vinollama doctor
+```
+
+`vinollama doctor` may return non-zero until `VINOLLAMA_LLAMA_CPU_BIN` or `VINOLLAMA_LLAMA_OPENVINO_BIN` points to a real llama.cpp server binary. That is an environment limitation, not a code failure, when tests still pass.
