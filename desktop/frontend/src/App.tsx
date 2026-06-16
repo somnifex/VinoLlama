@@ -237,10 +237,27 @@ function ChatPanel({
   const [controller, setController] = useState<AbortController | null>(null);
   const [activeConversationId, setActiveConversationId] = useState("");
   const [busyConversation, setBusyConversation] = useState("");
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [chatBackend, setChatBackend] = useState(settings?.runtime?.backend ?? "auto");
+  const [chatCtxSize, setChatCtxSize] = useState(`${settings?.generation?.ctx_size ?? 4096}`);
+  const [chatTemperature, setChatTemperature] = useState(`${settings?.generation?.temperature ?? 0.7}`);
+  const [chatTopP, setChatTopP] = useState(`${settings?.generation?.top_p ?? 0.9}`);
+  const [chatThreads, setChatThreads] = useState(`${settings?.generation?.threads ?? 0}`);
+  const [savingChatSettings, setSavingChatSettings] = useState(false);
+  const [chatSettingsNotice, setChatSettingsNotice] = useState("");
 
   const canSend = service.running && selectedModel !== "" && draft.trim() !== "" && !isStreaming;
   const canSave = service.running && selectedModel !== "" && messages.some((message) => message.role === "user" && message.content.trim() !== "");
   const visibleModel = selectedModel || "Select model";
+
+  useEffect(() => {
+    setChatBackend(settings?.runtime?.backend ?? "auto");
+    setChatCtxSize(`${settings?.generation?.ctx_size ?? 4096}`);
+    setChatTemperature(`${settings?.generation?.temperature ?? 0.7}`);
+    setChatTopP(`${settings?.generation?.top_p ?? 0.9}`);
+    setChatThreads(`${settings?.generation?.threads ?? 0}`);
+  }, [settings]);
 
   const sendMessage = async () => {
     const content = draft.trim();
@@ -256,7 +273,7 @@ function ChatPanel({
     setController(aborter);
 
     try {
-      const requestMessages = nextMessages.filter((message) => message.content !== "" && !isWelcomeMessage(message));
+      const requestMessages = buildPromptMessages(nextMessages, systemPrompt);
       await sendChatStream({
         model: selectedModel,
         messages: requestMessages,
@@ -296,6 +313,7 @@ function ChatPanel({
     setError("");
     setSaveNotice("");
     setActiveConversationId("");
+    setSystemPrompt("");
   };
 
   const openConversation = async (id: string) => {
@@ -311,7 +329,9 @@ function ChatPanel({
         setSaveNotice("Conversation could not be loaded.");
         return;
       }
-      setMessages(conversation.messages.length > 0 ? conversation.messages : welcomeMessages);
+      const split = splitConversationMessages(conversation.messages);
+      setSystemPrompt(split.systemPrompt);
+      setMessages(split.chatMessages.length > 0 ? split.chatMessages : welcomeMessages);
       setActiveConversationId(conversation.id);
       if (conversation.model) {
         onSelectModel(conversation.model);
@@ -324,7 +344,7 @@ function ChatPanel({
   };
 
   const saveCurrentConversation = async () => {
-    const contentMessages = messages.filter((message) => message.content.trim() !== "" && !isWelcomeMessage(message));
+    const contentMessages = buildStoredMessages(messages, systemPrompt);
     if (!canSave || contentMessages.length === 0) {
       return;
     }
@@ -342,6 +362,45 @@ function ChatPanel({
       setSaveNotice(err instanceof Error ? err.message : "Conversation could not be saved.");
     } finally {
       setBusyConversation("");
+    }
+  };
+
+  const saveChatSettings = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!service.running) {
+      return;
+    }
+    setSavingChatSettings(true);
+    setChatSettingsNotice("");
+    try {
+      const ctxSize = Number(chatCtxSize);
+      const temperature = Number(chatTemperature);
+      const topP = Number(chatTopP);
+      const threads = Number(chatThreads);
+      if (!Number.isFinite(ctxSize) || ctxSize < 512 || !Number.isFinite(temperature) || temperature < 0 || temperature > 2 || !Number.isFinite(topP) || topP < 0 || topP > 1 || !Number.isFinite(threads) || threads < 0) {
+        setChatSettingsNotice("Check context, temperature, Top P, and threads before saving.");
+        return;
+      }
+      const saved = await saveSettings({
+        runtime: {
+          backend: chatBackend,
+        },
+        generation: {
+          ctx_size: ctxSize,
+          temperature,
+          top_p: topP,
+          threads,
+        },
+        privacy: {
+          telemetry: false,
+        },
+      });
+      setChatSettingsNotice(saved.restart_required ? "Saved. Restart may be required." : "Settings saved.");
+      await onRefresh();
+    } catch (err) {
+      setChatSettingsNotice(err instanceof Error ? err.message : "Settings could not be saved.");
+    } finally {
+      setSavingChatSettings(false);
     }
   };
 
@@ -395,7 +454,7 @@ function ChatPanel({
   };
 
   return (
-    <section className="chat-layout" aria-label="Chat workspace">
+    <section className={inspectorOpen ? "chat-layout" : "chat-layout inspector-collapsed"} aria-label="Chat workspace">
       <div className="conversation-rail">
         <button type="button" className="primary-action" disabled={isStreaming} onClick={startNewConversation}>
           <PlusIcon />
@@ -473,6 +532,15 @@ function ChatPanel({
             <button
               type="button"
               className="secondary-action compact-action"
+              onClick={() => setInspectorOpen((current) => !current)}
+              aria-expanded={inspectorOpen}
+              aria-controls="chat-settings-panel"
+            >
+              {inspectorOpen ? "Hide panel" : "Show panel"}
+            </button>
+            <button
+              type="button"
+              className="secondary-action compact-action"
               disabled={!canSave || busyConversation === "save"}
               onClick={() => void saveCurrentConversation()}
             >
@@ -528,11 +596,91 @@ function ChatPanel({
         </form>
       </div>
 
-      <aside className="inspector" aria-label="Runtime inspector">
-        <Metric label="Backend" value={runtime?.backend ?? settings?.runtime?.backend ?? "auto"} />
-        <Metric label="Context" value={`${settings?.generation?.ctx_size ?? 4096}`} />
-        <Metric label="Temperature" value={`${settings?.generation?.temperature ?? 0.7}`} />
-        <Metric label="Threads" value={`${settings?.generation?.threads ?? "auto"}`} />
+      <aside className="inspector" id="chat-settings-panel" aria-label="Chat settings" hidden={!inspectorOpen}>
+        <div className="inspector-header">
+          <div>
+            <span>Local settings</span>
+            <strong>Chat controls</strong>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => setInspectorOpen(false)}
+            aria-label="Hide chat settings"
+            title="Hide chat settings"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+        <form className="inspector-form" onSubmit={saveChatSettings}>
+          <label>
+            <span>Backend</span>
+            <select value={chatBackend} onChange={(event) => setChatBackend(event.target.value)} disabled={!service.running || savingChatSettings}>
+              <option value="auto">auto</option>
+              <option value="openvino">openvino</option>
+              <option value="cpu">cpu</option>
+            </select>
+          </label>
+          <label>
+            <span>Context</span>
+            <input
+              type="number"
+              min="512"
+              step="512"
+              value={chatCtxSize}
+              onChange={(event) => setChatCtxSize(event.target.value)}
+              disabled={!service.running || savingChatSettings}
+            />
+          </label>
+          <label>
+            <span>Temperature</span>
+            <input
+              type="number"
+              min="0"
+              max="2"
+              step="0.1"
+              value={chatTemperature}
+              onChange={(event) => setChatTemperature(event.target.value)}
+              disabled={!service.running || savingChatSettings}
+            />
+          </label>
+          <label>
+            <span>Top P</span>
+            <input
+              type="number"
+              min="0"
+              max="1"
+              step="0.05"
+              value={chatTopP}
+              onChange={(event) => setChatTopP(event.target.value)}
+              disabled={!service.running || savingChatSettings}
+            />
+          </label>
+          <label>
+            <span>Threads</span>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={chatThreads}
+              onChange={(event) => setChatThreads(event.target.value)}
+              disabled={!service.running || savingChatSettings}
+            />
+          </label>
+          <label className="wide-field">
+            <span>System prompt</span>
+            <textarea
+              value={systemPrompt}
+              onChange={(event) => setSystemPrompt(event.target.value)}
+              placeholder="Optional instructions for this conversation"
+              rows={6}
+            />
+          </label>
+          <button type="submit" disabled={!service.running || savingChatSettings}>
+            {savingChatSettings ? "Saving" : "Save settings"}
+          </button>
+          {chatSettingsNotice && <span className="form-note">{chatSettingsNotice}</span>}
+        </form>
         <div className="inspector-note">
           <strong>Privacy</strong>
           <span>Prompts and conversations stay local by default.</span>
@@ -991,12 +1139,44 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
   );
 }
 
+function ThemeIcon({ mode }: { mode: ThemeMode }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="button-icon">
+      {mode === "light" ? (
+        <path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4M8 12a4 4 0 1 0 8 0 4 4 0 0 0-8 0" />
+      ) : (
+        <path d="M20 15.2A7.5 7.5 0 0 1 8.8 4a7.8 7.8 0 1 0 11.2 11.2" />
+      )}
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="button-icon">
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
 function PlusIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="button-icon">
       <path d="M12 5v14M5 12h14" />
     </svg>
   );
+}
+
+function getInitialTheme(): ThemeMode {
+  try {
+    const stored = window.localStorage.getItem("vinollama.theme");
+    if (stored === "light" || stored === "dark") {
+      return stored;
+    }
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  } catch {
+    return "light";
+  }
 }
 
 function getConversationTitle(messages: ChatMessage[]) {
@@ -1007,6 +1187,25 @@ function getConversationTitle(messages: ChatMessage[]) {
 
 function isWelcomeMessage(message: ChatMessage) {
   return message.role === "assistant" && message.content === welcomeMessages[0].content;
+}
+
+function buildPromptMessages(messages: ChatMessage[], systemPrompt: string) {
+  const clean = messages.filter((message) => message.content.trim() !== "" && !isWelcomeMessage(message));
+  const prompt = systemPrompt.trim();
+  if (!prompt) {
+    return clean;
+  }
+  return [{ role: "system", content: prompt } satisfies ChatMessage, ...clean];
+}
+
+function buildStoredMessages(messages: ChatMessage[], systemPrompt: string) {
+  return buildPromptMessages(messages, systemPrompt);
+}
+
+function splitConversationMessages(messages: ChatMessage[]) {
+  const systemPrompt = messages.find((message) => message.role === "system")?.content ?? "";
+  const chatMessages = messages.filter((message) => message.role !== "system" && !isWelcomeMessage(message));
+  return { systemPrompt, chatMessages };
 }
 
 function formatRelativeDate(value?: string) {

@@ -9,7 +9,9 @@ Current scope:
 - Local service status detection through `http://127.0.0.1:11435/api/version`.
 - Runtime process table through `GET /api/runtime` when the local API is running.
 - Stage-7 desktop workspace with Chat, Models, Runtime, Settings, Doctor, and Logs views.
-- Modern local-model-studio layout inspired by the simplicity of Ollama and the workstation density of LM Studio, without copying their branding or proprietary UI.
+- Simple Ollama-inspired chat layout for ordinary users, without copying Ollama branding or cloud behavior.
+- Light and dark desktop themes.
+- Collapsible chat settings sidebar for backend, context size, temperature, Top P, threads, and per-conversation system prompt.
 - Stage-8 API integration for chat streaming, model import, model selection, runtime stop, runtime restart, settings patching, doctor report copy, log filtering/copying, and local conversation list/read/save/update/delete/export.
 
 The desktop frontend is a local API client. It does not upload models, prompts, logs, or conversations.
