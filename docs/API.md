@@ -1,6 +1,7 @@
 # API
 
 
+
 The VinoLlama HTTP API is local-only by default and is served by:
 
 ```bash
@@ -28,6 +29,8 @@ POST   /api/runtime/restart
 GET    /api/doctor
 GET    /api/settings
 POST   /api/settings
+GET    /api/deployment
+POST   /api/deployment/select
 GET    /api/logs
 POST   /api/models/import
 GET    /api/conversations
@@ -173,6 +176,23 @@ Unsafe public binds such as `0.0.0.0` and `::` are rejected. `privacy.telemetry=
 Runtime settings include `runtime.backend`, `runtime.idle_timeout`, `runtime.ready_timeout`, `runtime.llama_openvino_bin`, `runtime.llama_cpu_bin`, `runtime.openvino_device`, `runtime.health_path`, `runtime.internal_port_start`, `runtime.extra_openvino_args`, `runtime.extra_cpu_args`, and `runtime.allow_unverified_flags`. `runtime.openvino_device` is passed to managed OpenVINO llama.cpp processes as `GGML_OPENVINO_DEVICE`.
 
 The desktop settings UI uses this endpoint for backend management, llama.cpp binary paths, OpenVINO device selection, advanced runtime arguments, context size, temperature, Top P, and threads. These settings currently apply to the running in-process configuration, not to a persistent config file.
+
+## Deployment
+
+`GET /api/deployment` inspects local OpenVINO and llama.cpp deployment readiness. It reports OpenVINO Runtime or `setupvars` discovery, local build tools, discovered llama.cpp `llama-server` candidates, build plans derived from the llama.cpp OpenVINO backend guide, and recommendations for missing prerequisites.
+
+The deployment API does not silently download, build, or execute remote code. It returns local status and commands for the user to run deliberately.
+
+`POST /api/deployment/select` validates and adopts a discovered or user-provided llama.cpp server binary:
+
+```json
+{
+  "kind": "openvino",
+  "path": "C:\\tools\\llama-server.exe"
+}
+```
+
+For `kind=openvino`, the binary must pass `--help` and VinoLlama must be able to confirm OpenVINO capability from the help output, binary name, or OpenVINO build directory. The selected path updates the active in-memory runtime settings returned by `GET /api/settings`.
 
 ## Logs
 

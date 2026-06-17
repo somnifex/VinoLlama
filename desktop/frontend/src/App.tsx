@@ -4,10 +4,12 @@ import {
   ChatMessage,
   ConversationSummary,
   deleteConversation,
+  DeploymentReport,
   DoctorCheck,
   exportConversationMarkdown,
   fetchConversation,
   fetchConversations,
+  fetchDeployment,
   fetchDoctor,
   fetchLogs,
   fetchModels,
@@ -23,6 +25,7 @@ import {
   restartRuntimeModel,
   saveConversation,
   saveSettings,
+  selectDeploymentBinary,
   sendChatStream,
   stopRuntimeModel,
   updateConversation,
@@ -47,6 +50,7 @@ export default function App() {
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
   const [doctor, setDoctor] = useState<DoctorCheck[]>([]);
   const [logs, setLogs] = useState<LogsResponse | null>(null);
+  const [deployment, setDeployment] = useState<DeploymentReport | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
@@ -55,13 +59,14 @@ export default function App() {
     const controller = new AbortController();
     setRefreshing(true);
     try {
-      const [nextService, nextRuntime, nextModels, nextSettings, nextDoctor, nextLogs, nextConversations] = await Promise.all([
+      const [nextService, nextRuntime, nextModels, nextSettings, nextDoctor, nextLogs, nextDeployment, nextConversations] = await Promise.all([
         fetchServiceStatus(controller.signal),
         fetchRuntimeStatus(controller.signal),
         fetchModels(controller.signal),
         fetchSettings(controller.signal),
         fetchDoctor(controller.signal),
         fetchLogs(controller.signal),
+        fetchDeployment(controller.signal),
         fetchConversations(controller.signal),
       ]);
       setService(nextService);
@@ -70,6 +75,7 @@ export default function App() {
       setSettings(nextSettings);
       setDoctor(nextDoctor);
       setLogs(nextLogs);
+      setDeployment(nextDeployment);
       setConversations(nextConversations);
     } finally {
       setRefreshing(false);
@@ -217,7 +223,7 @@ export default function App() {
           />
         )}
         {active === "Runtime" && <RuntimePanel service={service} runtime={runtime} settings={settings} copy={copy} onRefresh={refresh} />}
-        {active === "Settings" && <SettingsPanel service={service} settings={settings} copy={copy} onRefresh={refresh} />}
+        {active === "Settings" && <SettingsPanel service={service} settings={settings} deployment={deployment} copy={copy} onRefresh={refresh} />}
         {active === "Doctor" && <DoctorPanel service={service} checks={doctor} copy={copy} />}
         {active === "Logs" && <LogsPanel service={service} logs={logs} copy={copy} />}
       </section>
@@ -900,11 +906,13 @@ function RuntimePanel({
 function SettingsPanel({
   service,
   settings,
+  deployment,
   copy,
   onRefresh,
 }: {
   service: ServiceStatus;
   settings: SettingsStatus | null;
+  deployment: DeploymentReport | null;
   copy: I18nCopy;
   onRefresh: () => Promise<void>;
 }) {
@@ -925,6 +933,7 @@ function SettingsPanel({
   const [threads, setThreads] = useState(`${settings?.generation?.threads ?? 0}`);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const [selectingBinary, setSelectingBinary] = useState("");
 
   useEffect(() => {
     setBackend(settings?.runtime?.backend ?? "auto");
@@ -1004,6 +1013,20 @@ function SettingsPanel({
     }
   };
 
+  const useDeploymentBinary = async (kind: string, path: string) => {
+    setSelectingBinary(`${kind}:${path}`);
+    setNotice("");
+    try {
+      await selectDeploymentBinary(kind, path);
+      setNotice(interpolate(copy.settings.selectedBinary, { kind }));
+      await onRefresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : copy.settings.couldNotSave);
+    } finally {
+      setSelectingBinary("");
+    }
+  };
+
   return (
     <section className="page-panel">
       <PageHeader title={copy.settings.title} kicker={service.running ? copy.settings.active : copy.settings.preview} />
@@ -1056,6 +1079,88 @@ function SettingsPanel({
               <option value="GPU.1" />
             </datalist>
           </label>
+        </SettingGroup>
+        <SettingGroup title={copy.settings.deployment} wide>
+          {deployment ? (
+            <div className="deployment-panel">
+              <div className="deployment-row">
+                <strong>{copy.settings.openVINORuntime}</strong>
+                <span className={deployment.openvino.found ? "status-text ok" : "status-text warn"}>
+                  {deployment.openvino.found ? copy.settings.found : copy.settings.missing}
+                </span>
+                <small>{deployment.openvino.path || deployment.openvino.setup_script || deployment.openvino.fix}</small>
+              </div>
+              <div className="deployment-row">
+                <strong>{copy.settings.buildTools}</strong>
+                <div className="tool-strip">
+                  {deployment.tools.map((tool) => (
+                    <span className={tool.found ? "status-chip ok" : "status-chip warn"} key={tool.name} title={tool.path || tool.fix}>
+                      {tool.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="deployment-row">
+                <strong>{copy.settings.binaryCandidates}</strong>
+                {deployment.binaries.length === 0 ? (
+                  <small>{copy.settings.noCandidates}</small>
+                ) : (
+                  <div className="binary-list">
+                    {deployment.binaries.map((binary) => {
+                      const key = `${binary.kind}:${binary.path}`;
+                      const canSelect = binary.usable && (binary.kind !== "openvino" || binary.openvino_capable);
+                      return (
+                        <div className="binary-row" key={key}>
+                          <div>
+                            <span className={canSelect ? "status-chip ok" : "status-chip warn"}>{binary.kind}</span>
+                            <code>{binary.path}</code>
+                            <small>{binary.reason || binary.version || binary.source}</small>
+                          </div>
+                          <button
+                            type="button"
+                            className="secondary-action compact-action"
+                            disabled={!service.running || !canSelect || selectingBinary !== ""}
+                            onClick={() => void useDeploymentBinary(binary.kind, binary.path)}
+                          >
+                            {selectingBinary === key
+                              ? copy.settings.selecting
+                              : binary.kind === "openvino"
+                                ? copy.settings.useForOpenVINO
+                                : copy.settings.useForCPU}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div className="deployment-row">
+                <strong>{copy.settings.recommendations}</strong>
+                {deployment.recommendations.map((item) => (
+                  <small key={item}>{item}</small>
+                ))}
+              </div>
+              <details className="build-plan-details">
+                <summary>{copy.settings.buildPlans}</summary>
+                {deployment.build_plans.map((plan) => (
+                  <div className="build-plan" key={plan.name}>
+                    <strong>{plan.name}</strong>
+                    <small>{plan.description}</small>
+                    {plan.steps.map((step) => (
+                      <code key={`${plan.name}:${step.command}`}>{step.command}</code>
+                    ))}
+                  </div>
+                ))}
+              </details>
+              <a href={deployment.reference} target="_blank" rel="noreferrer">
+                {copy.settings.deploymentReference}
+              </a>
+            </div>
+          ) : (
+            <div className="deployment-panel">
+              <small>{copy.settings.noDeployment}</small>
+            </div>
+          )}
         </SettingGroup>
         <SettingGroup title={copy.settings.advancedRuntime} wide>
           <EditableRow label={copy.settings.healthPath} value={healthPath} onChange={setHealthPath} disabled={!service.running || saving} />

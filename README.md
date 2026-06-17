@@ -61,7 +61,7 @@ Built with Wails v2, React, TypeScript, and Vite.
 - **Chat**: streaming conversations with Markdown and code block support.
 - **Models**: import, view, and manage GGUF models.
 - **Runtime**: monitor running processes, backends, and runtime state.
-- **Settings**: configure host, port, backend, generation defaults, theme, and UI language.
+- **Settings**: configure host, port, backend, generation defaults, theme, UI language, and local llama.cpp/OpenVINO deployment.
 - **Doctor**: environment diagnostics with actionable fix suggestions.
 - **Logs**: view recent local runtime logs.
 - **Languages**: switch between English and Simplified Chinese in the desktop shell.
@@ -77,6 +77,7 @@ Local-only API at `http://127.0.0.1:11435` with endpoints for chat, generate, mo
 - **CPU mode**: require a llama.cpp CPU server binary.
 - Automatic process reuse with idle timeout cleanup.
 - Capability detection from local `--help` output; unverified extra flags are opt-in.
+- Local deployment inspection for OpenVINO Runtime, build tools, llama.cpp candidates, and documented build plans.
 
 ---
 

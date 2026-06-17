@@ -820,6 +820,98 @@ select:disabled {
   font-size: 13px;
 }
 
+.deployment-panel,
+.deployment-row,
+.binary-list,
+.build-plan {
+  display: grid;
+  gap: 10px;
+  grid-column: 1 / -1;
+}
+
+.deployment-row {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.deployment-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.deployment-row small,
+.build-plan small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.tool-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.status-chip,
+.status-text {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 9px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.status-chip.ok,
+.status-text.ok {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  color: var(--ok);
+}
+
+.status-chip.warn,
+.status-text.warn {
+  background: color-mix(in srgb, var(--warning) 13%, transparent);
+  color: var(--warning);
+}
+
+.binary-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface-soft);
+}
+
+.binary-row > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.binary-row code,
+.build-plan code {
+  overflow-wrap: anywhere;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: 12px/1.45 "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.build-plan-details {
+  color: var(--muted);
+}
+
+.build-plan-details summary {
+  cursor: pointer;
+  color: var(--text);
+}
+
 .model-card span {
   color: var(--subtle);
   font-size: 12px;

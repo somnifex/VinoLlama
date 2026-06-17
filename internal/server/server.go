@@ -17,6 +17,7 @@ import (
 
 	"vinollama/internal/config"
 	"vinollama/internal/conversations"
+	"vinollama/internal/deployment"
 	"vinollama/internal/diagnostic"
 	"vinollama/internal/llamacpp"
 	"vinollama/internal/models"
@@ -46,6 +47,8 @@ func NewHandler(cfg config.Config, manager *vinoruntime.Manager, store models.St
 	mux.HandleFunc("/api/runtime/restart", s.handleRuntimeRestart)
 	mux.HandleFunc("/api/doctor", s.handleDoctor)
 	mux.HandleFunc("/api/settings", s.handleSettings)
+	mux.HandleFunc("/api/deployment", s.handleDeployment)
+	mux.HandleFunc("/api/deployment/select", s.handleDeploymentSelect)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/models/import", s.handleModelsImport)
 	mux.HandleFunc("/api/conversations", s.handleConversations)
@@ -353,6 +356,40 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed.", "Only GET and POST are supported.", "Use GET or POST /api/settings.", "")
 	}
+}
+
+func (s *Server) handleDeployment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed.", "Only GET is supported.", "Use GET /api/deployment.", "")
+		return
+	}
+	writeJSON(w, http.StatusOK, deployment.Inspect(r.Context(), s.cfg))
+}
+
+func (s *Server) handleDeploymentSelect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed.", "Only POST is supported.", "Use POST /api/deployment/select.", "")
+		return
+	}
+	var req struct {
+		Kind string `json:"kind"`
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Deployment selection could not be decoded.", err.Error(), "Send JSON like {\"kind\":\"openvino\",\"path\":\"C:\\\\path\\\\llama-server.exe\"}.", "")
+		return
+	}
+	next, candidate, err := deployment.SelectBinary(r.Context(), s.cfg, req.Kind, req.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Deployment binary could not be selected.", err.Error(), "Select a local llama.cpp server binary that passes --help and matches the requested backend.", fmt.Sprintf("kind=%s path=%s", req.Kind, req.Path))
+		return
+	}
+	s.cfg = next
+	writeJSON(w, http.StatusOK, map[string]any{
+		"selected": true,
+		"binary":   candidate,
+		"settings": settingsResponse(s.cfg, false, true),
+	})
 }
 
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {

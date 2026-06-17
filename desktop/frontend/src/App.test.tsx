@@ -23,6 +23,19 @@ function setupFetch() {
     if (url === `${apiBase}/api/settings` && init?.method === "POST") {
       return jsonResponse({ restart_required: false });
     }
+    if (url === `${apiBase}/api/deployment/select` && init?.method === "POST") {
+      return jsonResponse({
+        selected: true,
+        binary: {
+          kind: "openvino",
+          path: "C:\\tools\\llama-openvino.exe",
+          source: "selected",
+          usable: true,
+          openvino_capable: true,
+          capability_confidence: "confirmed",
+        },
+      });
+    }
     if (url === `${apiBase}/api/settings`) {
       return jsonResponse({
         server: { host: "127.0.0.1", port: 11435 },
@@ -48,6 +61,38 @@ function setupFetch() {
     }
     if (url === `${apiBase}/api/logs?limit=160`) {
       return jsonResponse({ lines: [] });
+    }
+    if (url === `${apiBase}/api/deployment`) {
+      return jsonResponse({
+        platform: "windows/amd64",
+        openvino: { found: true, source: "setupvars", setup_script: "C:\\OpenVINO\\setupvars.bat" },
+        tools: [
+          { name: "git", found: true, path: "C:\\git.exe" },
+          { name: "cmake", found: true, path: "C:\\cmake.exe" },
+          { name: "ninja", found: false, fix: "Install Ninja." },
+        ],
+        binaries: [
+          {
+            kind: "openvino",
+            path: "C:\\tools\\llama-openvino.exe",
+            source: "discovered",
+            usable: true,
+            version: "1.2.3",
+            openvino_capable: true,
+            capability_confidence: "confirmed",
+          },
+        ],
+        recommendations: ["Deployment prerequisites look ready."],
+        build_plans: [
+          {
+            name: "Build llama.cpp OpenVINO server on Windows",
+            backend: "openvino",
+            description: "Build llama-server with GGML_OPENVINO=ON.",
+            steps: [{ shell: "cmd", command: "cmake -DGGML_OPENVINO=ON" }],
+          },
+        ],
+        reference: "https://github.com/ggml-org/llama.cpp/blob/master/docs/backend/OPENVINO.md",
+      });
     }
     if (url === `${apiBase}/api/conversations`) {
       return jsonResponse({
@@ -171,6 +216,25 @@ describe("App chat experience", () => {
         openvino_device: "GPU.0",
         extra_openvino_args: ["--device", "GPU"],
         allow_unverified_flags: true,
+      });
+    });
+  });
+
+  test("selects a discovered OpenVINO deployment binary from settings", async () => {
+    const { calls } = setupFetch();
+    render(<App />);
+
+    await screen.findByText("New chat");
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await screen.findByText("Discovered llama.cpp servers");
+    await userEvent.click(screen.getByRole("button", { name: "Use for OpenVINO" }));
+
+    await waitFor(() => {
+      const selectCall = calls.find((call) => call.url === `${apiBase}/api/deployment/select` && call.init?.method === "POST");
+      expect(selectCall).toBeDefined();
+      expect(JSON.parse(String(selectCall?.init?.body))).toEqual({
+        kind: "openvino",
+        path: "C:\\tools\\llama-openvino.exe",
       });
     });
   });

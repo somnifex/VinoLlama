@@ -80,6 +80,49 @@ export type LogsResponse = {
   error?: string;
 };
 
+export type DeploymentReport = {
+  platform: string;
+  openvino: DeploymentRuntimeStatus;
+  tools: DeploymentToolStatus[];
+  binaries: DeploymentBinaryCandidate[];
+  recommendations: string[];
+  build_plans: DeploymentBuildPlan[];
+  reference: string;
+};
+
+export type DeploymentRuntimeStatus = {
+  found: boolean;
+  source: string;
+  path?: string;
+  setup_script?: string;
+  fix?: string;
+};
+
+export type DeploymentToolStatus = {
+  name: string;
+  found: boolean;
+  path?: string;
+  fix?: string;
+};
+
+export type DeploymentBinaryCandidate = {
+  kind: "openvino" | "cpu" | string;
+  path: string;
+  source: string;
+  usable: boolean;
+  version?: string;
+  openvino_capable?: boolean;
+  capability_confidence?: string;
+  reason?: string;
+};
+
+export type DeploymentBuildPlan = {
+  name: string;
+  backend: string;
+  description: string;
+  steps: Array<{ shell: string; command: string; note?: string }>;
+};
+
 export type LogEntry = {
   file: string;
   modified_at?: string;
@@ -179,6 +222,15 @@ export async function fetchDoctor(signal?: AbortSignal): Promise<DoctorCheck[]> 
 
 export async function fetchLogs(signal?: AbortSignal): Promise<LogsResponse | null> {
   return fetchJSON<LogsResponse>("/api/logs?limit=160", signal);
+}
+
+export async function fetchDeployment(signal?: AbortSignal): Promise<DeploymentReport | null> {
+  return fetchJSON<DeploymentReport>("/api/deployment", signal);
+}
+
+export async function selectDeploymentBinary(kind: string, path: string): Promise<DeploymentBinaryCandidate> {
+  const payload = await postJSON<{ binary: DeploymentBinaryCandidate }>("/api/deployment/select", { kind, path });
+  return payload.binary;
 }
 
 export async function fetchConversations(signal?: AbortSignal): Promise<ConversationSummary[]> {

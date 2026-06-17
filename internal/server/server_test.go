@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -292,6 +293,63 @@ func TestAPILocalCORSRejectsExternalOrigin(t *testing.T) {
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("external origin was allowed: %q", got)
+	}
+}
+
+func TestAPIDeploymentStatusAndSelectCPU(t *testing.T) {
+	t.Setenv("VINOLLAMA_FAKE_LLAMA_HELP", "1")
+	handler, manager := newFakeAPIHandler(t)
+	defer manager.ShutdownAll(context.Background())
+	api := httptest.NewServer(handler)
+	defer api.Close()
+
+	resp, err := http.Get(api.URL + "/api/deployment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("deployment status = %d", resp.StatusCode)
+	}
+	var report struct {
+		Reference  string `json:"reference"`
+		BuildPlans []struct {
+			Backend string `json:"backend"`
+		} `json:"build_plans"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Reference == "" || len(report.BuildPlans) == 0 {
+		t.Fatalf("deployment report = %#v", report)
+	}
+
+	body, err := json.Marshal(map[string]string{"kind": "cpu", "path": os.Args[0]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectResp, err := http.Post(api.URL+"/api/deployment/select", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer selectResp.Body.Close()
+	if selectResp.StatusCode != http.StatusOK {
+		text, _ := io.ReadAll(selectResp.Body)
+		t.Fatalf("deployment select status = %d body=%s", selectResp.StatusCode, text)
+	}
+	var payload struct {
+		Selected bool `json:"selected"`
+		Settings struct {
+			Runtime struct {
+				LlamaCPUBin string `json:"llama_cpu_bin"`
+			} `json:"runtime"`
+		} `json:"settings"`
+	}
+	if err := json.NewDecoder(selectResp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Selected || payload.Settings.Runtime.LlamaCPUBin == "" {
+		t.Fatalf("deployment select payload = %#v", payload)
 	}
 }
 
