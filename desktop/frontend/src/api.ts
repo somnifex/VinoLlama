@@ -44,6 +44,12 @@ export type SettingsStatus = {
     ready_timeout?: string;
     llama_openvino_bin?: string;
     llama_cpu_bin?: string;
+    openvino_device?: string;
+    internal_port_start?: number;
+    health_path?: string;
+    extra_openvino_args?: string[];
+    extra_cpu_args?: string[];
+    allow_unverified_flags?: boolean;
   };
   generation?: {
     ctx_size?: number;

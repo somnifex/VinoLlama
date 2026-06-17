@@ -2,6 +2,7 @@
 
 
 
+
 VinoLlama development uses Loop Engineering: a controlled engineering loop that turns each coding task into a measurable cycle.
 
 The goal is not to make the agent produce more code. The goal is to make the agent produce code that can be inspected, verified, repaired, and trusted.
@@ -88,7 +89,7 @@ go run ./cmd/vinollama doctor
 API:
 
 ```bash
-go test ./internal/api ./internal/server ./...
+go test ./internal/server ./...
 curl http://127.0.0.1:11435/api/version
 ```
 
@@ -689,7 +690,6 @@ If any Security/Privacy finding is marked block, fix it before completion.
 
 ```text
 cmd/vinollama/                Backend Agent
-internal/api/                 Backend Agent
 internal/backend/             Backend Agent
 internal/config/              Backend Agent + Security Agent
 internal/diagnostic/          Backend Agent
@@ -697,7 +697,7 @@ internal/llamacpp/            Backend Agent + Security Agent
 internal/logging/             Backend Agent + Security Agent
 internal/models/              Backend Agent + Security Agent
 internal/runtime/             Backend Agent + Architect Agent
-internal/server/              Backend Agent + Security Agent
+internal/server/              Backend Agent + Security Agent + API ownership
 desktop/                      Desktop Agent
 docs/                         Docs Agent + relevant role
 scripts/                      Backend Agent + QA Agent

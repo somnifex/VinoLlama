@@ -1,4 +1,7 @@
 .gocache/
+.gomodcache/
+.npm-cache/
+.runtime-check/
 .history/
 .claude/
 desktop/frontend/node_modules/

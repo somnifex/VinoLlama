@@ -1,5 +1,6 @@
 # Privacy
 
+
 VinoLlama is local-first and privacy-first.
 
 Current defaults:
@@ -17,6 +18,7 @@ Current defaults:
 - Conversations are stored as local JSON files and are not uploaded or synced.
 - Runtime logs are local files only. When `models.directory` is configured, runtime logs are stored beside that model root under `logs/runtime`.
 - The desktop app checks only the local VinoLlama API at `127.0.0.1:11435`.
+- The desktop UI language preference is stored only in local browser storage.
 - The generated project logo is bundled as a local static asset. It does not trigger runtime network requests.
 - Conversation Markdown export is copied to the local clipboard by the desktop UI; it is not uploaded or synced.
 

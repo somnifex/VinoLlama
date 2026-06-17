@@ -49,6 +49,7 @@ runtime:
   backend: cpu
   idle_timeout: 2m
   ready_timeout: 45s
+  openvino_device: GPU.0
   internal_port_start: 22000
   health_path: /healthz
   extra_cpu_args: ["--temp", "0.4"]
@@ -84,6 +85,9 @@ privacy:
 	if loaded.Config.Runtime.ReadyTimeout != 45*time.Second {
 		t.Fatalf("ready timeout = %s, want 45s", loaded.Config.Runtime.ReadyTimeout)
 	}
+	if loaded.Config.Runtime.OpenVINODevice != "GPU.0" {
+		t.Fatalf("openvino device = %q, want GPU.0", loaded.Config.Runtime.OpenVINODevice)
+	}
 	if loaded.Config.Runtime.InternalPortStart != 22000 {
 		t.Fatalf("internal port start = %d, want 22000", loaded.Config.Runtime.InternalPortStart)
 	}
@@ -95,6 +99,19 @@ privacy:
 	}
 	if !loaded.Config.Runtime.AllowUnverifiedFlags {
 		t.Fatal("allow_unverified_flags = false, want true")
+	}
+}
+
+func TestOpenVINODeviceEnvOverride(t *testing.T) {
+	t.Setenv("VINOLLAMA_OPENVINO_DEVICE", "NPU")
+
+	loaded, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if loaded.Config.Runtime.OpenVINODevice != "NPU" {
+		t.Fatalf("openvino device = %q, want NPU", loaded.Config.Runtime.OpenVINODevice)
 	}
 }
 

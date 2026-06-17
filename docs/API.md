@@ -1,5 +1,6 @@
 # API
 
+
 The VinoLlama HTTP API is local-only by default and is served by:
 
 ```bash
@@ -47,6 +48,8 @@ POST   /api/runtime/restart options for context/thread overrides
 Streaming APIs use newline-delimited JSON (NDJSON).
 
 All examples assume the default base URL `http://127.0.0.1:11435`.
+
+The API returns CORS headers only for the Wails desktop origin and loopback development origins such as `localhost` or `127.0.0.1`. External website origins are not granted browser access.
 
 ## Generate
 
@@ -112,10 +115,12 @@ Errors are structured JSON with `what`, `reason`, `fix`, and `details` fields:
 
 ```json
 {
-  "what": "Runtime could not start.",
-  "reason": "llama.cpp server binary was not found.",
-  "fix": "Set VINOLLAMA_LLAMA_CPU_BIN or VINOLLAMA_LLAMA_OPENVINO_BIN.",
-  "details": ""
+  "error": {
+    "what": "Runtime could not start.",
+    "reason": "llama.cpp server binary was not found.",
+    "fix": "Set VINOLLAMA_LLAMA_CPU_BIN or VINOLLAMA_LLAMA_OPENVINO_BIN.",
+    "details": ""
+  }
 }
 ```
 
@@ -165,7 +170,9 @@ The default behavior deletes only the manifest. `delete_file=true` is required b
 
 Unsafe public binds such as `0.0.0.0` and `::` are rejected. `privacy.telemetry=true` is rejected because telemetry is not implemented and remains disabled.
 
-The desktop chat settings sidebar uses this endpoint for backend, context size, temperature, Top P, and threads. These settings currently apply to the running in-process configuration, not to a persistent config file.
+Runtime settings include `runtime.backend`, `runtime.idle_timeout`, `runtime.ready_timeout`, `runtime.llama_openvino_bin`, `runtime.llama_cpu_bin`, `runtime.openvino_device`, `runtime.health_path`, `runtime.internal_port_start`, `runtime.extra_openvino_args`, `runtime.extra_cpu_args`, and `runtime.allow_unverified_flags`. `runtime.openvino_device` is passed to managed OpenVINO llama.cpp processes as `GGML_OPENVINO_DEVICE`.
+
+The desktop settings UI uses this endpoint for backend management, llama.cpp binary paths, OpenVINO device selection, advanced runtime arguments, context size, temperature, Top P, and threads. These settings currently apply to the running in-process configuration, not to a persistent config file.
 
 ## Logs
 

@@ -86,23 +86,47 @@ func ExecuteWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, 
 	case "stop":
 		return runStop(cmdCtx, stdout, stderr, *configPath, *backend, rest[1:])
 	case "serve":
-		return runServe(cmdCtx, stdout, stderr, *configPath, *backend, *verbose)
+		return runServe(cmdCtx, stdout, stderr, *configPath, *backend, *verbose, rest[1:])
 	default:
 		printActionableError(stderr, "Unknown command.", fmt.Sprintf("`%s` is not a VinoLlama command.", command), "Run `vinollama --help` to see supported commands.")
 		return 2
 	}
 }
 
-func runServe(ctx context.Context, stdout, stderr io.Writer, configPath, backend string, verbose bool) int {
+type serveCommandOptions struct {
+	Host    string
+	Port    int
+	Backend string
+	Verbose bool
+	Help    bool
+}
+
+func runServe(ctx context.Context, stdout, stderr io.Writer, configPath, backend string, verbose bool, args []string) int {
+	options, err := parseServeArgs(args, backend, verbose)
+	if err != nil {
+		printActionableError(stderr, "Serve arguments are invalid.", err.Error(), "Use `vinollama serve [--host 127.0.0.1] [--port 11435] [--backend auto|openvino|cpu]`.")
+		return 2
+	}
+	if options.Help {
+		printServeHelp(stdout)
+		return 0
+	}
+
 	loaded, err := config.Load(configPath)
 	if err != nil {
 		printActionableError(stderr, "Configuration could not be loaded.", err.Error(), "Check the config path and YAML syntax, or run without --config to use safe defaults.")
 		return 1
 	}
-	if backend != "" {
-		loaded.Config.Runtime.Backend = backend
+	if options.Host != "" {
+		loaded.Config.Server.Host = options.Host
 	}
-	if verbose {
+	if options.Port != 0 {
+		loaded.Config.Server.Port = options.Port
+	}
+	if options.Backend != "" {
+		loaded.Config.Runtime.Backend = options.Backend
+	}
+	if options.Verbose {
 		loaded.Config.Logging.Level = "debug"
 	}
 	if loaded.Config.Server.Host == "0.0.0.0" || loaded.Config.Server.Host == "::" {
@@ -144,6 +168,51 @@ func runServe(ctx context.Context, stdout, stderr io.Writer, configPath, backend
 		_ = manager.ShutdownAll(shutdownCtx)
 		return 0
 	}
+}
+
+func parseServeArgs(args []string, defaultBackend string, defaultVerbose bool) (serveCommandOptions, error) {
+	options := serveCommandOptions{Backend: defaultBackend, Verbose: defaultVerbose}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--host":
+			value, err := nextFlagValue(args, &i, arg)
+			if err != nil {
+				return serveCommandOptions{}, err
+			}
+			value = strings.TrimSpace(value)
+			if value == "" {
+				return serveCommandOptions{}, fmt.Errorf("--host must not be empty")
+			}
+			options.Host = value
+		case "--port":
+			value, err := nextFlagValue(args, &i, arg)
+			if err != nil {
+				return serveCommandOptions{}, err
+			}
+			port, err := strconv.Atoi(value)
+			if err != nil || port <= 0 || port > 65535 {
+				return serveCommandOptions{}, fmt.Errorf("--port must be an integer between 1 and 65535")
+			}
+			options.Port = port
+		case "--backend":
+			value, err := nextFlagValue(args, &i, arg)
+			if err != nil {
+				return serveCommandOptions{}, err
+			}
+			if !config.ValidBackend(value) {
+				return serveCommandOptions{}, fmt.Errorf("backend must be one of auto, openvino, cpu, got %q", value)
+			}
+			options.Backend = value
+		case "--verbose":
+			options.Verbose = true
+		case "--help", "-h":
+			options.Help = true
+		default:
+			return serveCommandOptions{}, fmt.Errorf("unknown serve flag %q", arg)
+		}
+	}
+	return options, nil
 }
 
 func runPS(ctx context.Context, stdout, stderr io.Writer, configPath, backend string) int {
@@ -568,7 +637,7 @@ Implemented commands:
   rm <model>              Remove a model manifest
   run <model>             Start an interactive local chat
   run <path-to-gguf>      Import a local GGUF by reference, then chat
-  serve                   Start the local HTTP API on 127.0.0.1:11435 by default
+  serve [serve flags]     Start the local HTTP API on 127.0.0.1:11435 by default
 
 Runtime commands:
   ps                      Show running model processes
@@ -580,12 +649,37 @@ Flags:
   --verbose               Enable debug logging
   -h, --help              Show this help
 
+Serve flags:
+  --host <host>           HTTP bind host
+  --port <port>           HTTP bind port
+
 Safe defaults:
   HTTP bind: 127.0.0.1
   HTTP port: 11435
   Telemetry: false
 
 `, version)
+}
+
+func printServeHelp(w io.Writer) {
+	fmt.Fprintf(w, `Usage:
+  vinollama serve [flags]
+
+Start the local HTTP API.
+
+Flags:
+  --host <host>           HTTP bind host (default 127.0.0.1)
+  --port <port>           HTTP bind port (default 11435)
+  --backend <backend>     Runtime backend: auto, openvino, or cpu
+  --verbose               Enable debug logging
+  -h, --help              Show this help
+
+Safe defaults:
+  HTTP bind: 127.0.0.1
+  HTTP port: 11435
+  Telemetry: false
+
+`)
 }
 
 func printDoctor(w io.Writer, report diagnostic.Report) {

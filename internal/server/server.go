@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -48,7 +50,46 @@ func NewHandler(cfg config.Config, manager *vinoruntime.Manager, store models.St
 	mux.HandleFunc("/api/models/import", s.handleModelsImport)
 	mux.HandleFunc("/api/conversations", s.handleConversations)
 	mux.HandleFunc("/api/conversations/", s.handleConversationByID)
-	return mux
+	return localCORSMiddleware(mux)
+}
+
+func localCORSMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if isAllowedLocalOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Vary", "Origin")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isAllowedLocalOrigin(origin string) bool {
+	if origin == "" {
+		return false
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme == "wails" {
+		return true
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	host := parsed.Hostname()
+	if strings.EqualFold(host, "localhost") || strings.EqualFold(host, "wails.localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
@@ -507,6 +548,7 @@ type settingsPayload struct {
 		ReadyTimeout         string   `json:"ready_timeout"`
 		LlamaOpenVINOBin     string   `json:"llama_openvino_bin"`
 		LlamaCPUBin          string   `json:"llama_cpu_bin"`
+		OpenVINODevice       string   `json:"openvino_device"`
 		InternalPortStart    int      `json:"internal_port_start"`
 		HealthPath           string   `json:"health_path"`
 		ExtraOpenVINOArgs    []string `json:"extra_openvino_args"`
@@ -551,6 +593,7 @@ type settingsPatch struct {
 		ReadyTimeout         *string  `json:"ready_timeout"`
 		LlamaOpenVINOBin     *string  `json:"llama_openvino_bin"`
 		LlamaCPUBin          *string  `json:"llama_cpu_bin"`
+		OpenVINODevice       *string  `json:"openvino_device"`
 		InternalPortStart    *int     `json:"internal_port_start"`
 		HealthPath           *string  `json:"health_path"`
 		ExtraOpenVINOArgs    []string `json:"extra_openvino_args"`
@@ -591,6 +634,7 @@ func settingsResponse(cfg config.Config, persisted, restartRequired bool) settin
 	payload.Runtime.ReadyTimeout = cfg.Runtime.ReadyTimeout.String()
 	payload.Runtime.LlamaOpenVINOBin = cfg.Runtime.LlamaOpenVINOBin
 	payload.Runtime.LlamaCPUBin = cfg.Runtime.LlamaCPUBin
+	payload.Runtime.OpenVINODevice = cfg.Runtime.OpenVINODevice
 	payload.Runtime.InternalPortStart = cfg.Runtime.InternalPortStart
 	payload.Runtime.HealthPath = cfg.Runtime.HealthPath
 	payload.Runtime.ExtraOpenVINOArgs = append([]string{}, cfg.Runtime.ExtraOpenVINOArgs...)
@@ -661,6 +705,9 @@ func applySettingsPatch(cfg config.Config, patch settingsPatch) (config.Config, 
 		}
 		if patch.Runtime.LlamaCPUBin != nil {
 			next.Runtime.LlamaCPUBin = strings.TrimSpace(*patch.Runtime.LlamaCPUBin)
+		}
+		if patch.Runtime.OpenVINODevice != nil {
+			next.Runtime.OpenVINODevice = strings.TrimSpace(*patch.Runtime.OpenVINODevice)
 		}
 		if patch.Runtime.InternalPortStart != nil {
 			if *patch.Runtime.InternalPortStart <= 0 || *patch.Runtime.InternalPortStart > 65535 {

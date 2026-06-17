@@ -49,6 +49,45 @@ func TestHelpShowsSafeDefaults(t *testing.T) {
 	}
 }
 
+func TestServeHelpShowsCommandFlags(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	code := Execute(context.Background(), []string{"serve", "--help"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("Execute() code = %d, want 0; stderr: %s", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"vinollama serve", "--host", "--port", "--backend"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("serve help output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestParseServeArgsAcceptsDocumentedFlags(t *testing.T) {
+	options, err := parseServeArgs([]string{"--host", "127.0.0.1", "--port", "12435", "--backend", "cpu", "--verbose"}, "", false)
+	if err != nil {
+		t.Fatalf("parseServeArgs returned error: %v", err)
+	}
+	if options.Host != "127.0.0.1" || options.Port != 12435 || options.Backend != "cpu" || !options.Verbose {
+		t.Fatalf("options = %#v", options)
+	}
+}
+
+func TestServeRejectsInvalidCommandFlag(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	code := Execute(context.Background(), []string{"serve", "--port", "not-a-port"}, &stdout, &stderr)
+
+	if code != 2 {
+		t.Fatalf("Execute() code = %d, want 2; stdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Serve arguments are invalid.") {
+		t.Fatalf("stderr missing actionable serve error:\n%s", stderr.String())
+	}
+}
+
 func TestDoctorRunsWithSafeConfig(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "models")

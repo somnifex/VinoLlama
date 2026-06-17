@@ -253,6 +253,10 @@ textarea:focus-visible {
   gap: 8px;
 }
 
+.topbar-actions {
+  flex-wrap: wrap;
+}
+
 .runtime-pill,
 .service-chip {
   display: inline-flex;
@@ -265,6 +269,26 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.language-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--subtle);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.language-picker select {
+  width: auto;
+  min-width: 112px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 28px 0 10px;
+  background: var(--surface-soft);
+  color: var(--text);
 }
 
 .icon-button {
@@ -761,6 +785,26 @@ select:disabled {
   display: grid;
   grid-column: 1 / -1;
   gap: 7px;
+}
+
+.setting-group.wide {
+  grid-column: 1 / -1;
+}
+
+.checkbox-row {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  color: var(--muted);
+}
+
+.checkbox-row input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  accent-color: var(--accent);
 }
 
 .settings-actions {

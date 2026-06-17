@@ -147,6 +147,18 @@ func TestRuntimeManagerKeepsFailedStartupState(t *testing.T) {
 	}
 }
 
+func TestOpenVINOEnvUsesConfiguredDeviceOnlyForOpenVINO(t *testing.T) {
+	if got := openVINOEnv("openvino", "GPU.0"); len(got) != 1 || got[0] != "GGML_OPENVINO_DEVICE=GPU.0" {
+		t.Fatalf("openVINOEnv(openvino, GPU.0) = %#v", got)
+	}
+	if got := openVINOEnv("cpu", "GPU.0"); got != nil {
+		t.Fatalf("openVINOEnv(cpu, GPU.0) = %#v, want nil", got)
+	}
+	if got := openVINOEnv("openvino", " "); got != nil {
+		t.Fatalf("openVINOEnv(openvino, blank) = %#v, want nil", got)
+	}
+}
+
 func newFakeManager(t *testing.T, backend string) *Manager {
 	t.Helper()
 	exe, err := os.Executable()

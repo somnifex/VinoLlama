@@ -58,7 +58,7 @@ func Run(ctx context.Context, cfg config.Config, configPath string, configFound 
 	report = append(report, checkArch())
 	report = append(report, checkIntelCPU())
 	report = append(report, checkOpenVINORuntime())
-	report = append(report, checkOpenVINODevice())
+	report = append(report, checkOpenVINODevice(cfg))
 	report = append(report, checkLlamaBackends(ctx, cfg)...)
 	report = append(report, checkInternalPortAllocation(cfg))
 	report = append(report, checkModelDirectory(cfg))
@@ -109,10 +109,13 @@ func checkOpenVINORuntime() Check {
 	return warn("OpenVINO Runtime", "No OpenVINO runtime environment variable was detected.", "Install OpenVINO or configure the llama.cpp OpenVINO binary before using the openvino backend.")
 }
 
-func checkOpenVINODevice() Check {
-	device := strings.TrimSpace(os.Getenv("GGML_OPENVINO_DEVICE"))
+func checkOpenVINODevice(cfg config.Config) Check {
+	device := strings.TrimSpace(cfg.Runtime.OpenVINODevice)
 	if device == "" {
-		return warn("OpenVINO device selection", "GGML_OPENVINO_DEVICE is not set; llama.cpp OpenVINO defaults will apply.", "Set GGML_OPENVINO_DEVICE to CPU, GPU, NPU, GPU.0, or another OpenVINO target when you need explicit device selection.")
+		device = strings.TrimSpace(os.Getenv("GGML_OPENVINO_DEVICE"))
+	}
+	if device == "" {
+		return warn("OpenVINO device selection", "No OpenVINO device is configured; llama.cpp OpenVINO defaults will apply.", "Set runtime.openvino_device, VINOLLAMA_OPENVINO_DEVICE, or GGML_OPENVINO_DEVICE to CPU, GPU, NPU, GPU.0, or another OpenVINO target when you need explicit device selection.")
 	}
 	upper := strings.ToUpper(device)
 	stateful := strings.TrimSpace(os.Getenv("GGML_OPENVINO_STATEFUL_EXECUTION"))

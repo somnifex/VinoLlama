@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import App from "./App";
 
 const apiBase = "http://127.0.0.1:11435";
@@ -20,10 +20,25 @@ function setupFetch() {
     if (url === `${apiBase}/api/tags`) {
       return jsonResponse({ models: [{ name: "demo-model", parameters: "7B", quantization: "Q4_K_M" }] });
     }
+    if (url === `${apiBase}/api/settings` && init?.method === "POST") {
+      return jsonResponse({ restart_required: false });
+    }
     if (url === `${apiBase}/api/settings`) {
       return jsonResponse({
         server: { host: "127.0.0.1", port: 11435 },
-        runtime: { backend: "auto", idle_timeout: "10m0s" },
+        runtime: {
+          backend: "auto",
+          idle_timeout: "10m0s",
+          ready_timeout: "30s",
+          llama_openvino_bin: "",
+          llama_cpu_bin: "",
+          openvino_device: "",
+          internal_port_start: 21435,
+          health_path: "",
+          extra_openvino_args: [],
+          extra_cpu_args: [],
+          allow_unverified_flags: false,
+        },
         generation: { ctx_size: 4096, temperature: 0.7, top_p: 0.9, threads: 0 },
         privacy: { telemetry: false },
       });
@@ -68,10 +83,6 @@ function setupFetch() {
         JSON.stringify({ done: true }),
       ]);
     }
-    if (url === `${apiBase}/api/settings` && init?.method === "POST") {
-      return jsonResponse({ restart_required: false });
-    }
-
     return jsonResponse({}, 404);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -79,6 +90,11 @@ function setupFetch() {
 }
 
 describe("App chat experience", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.localStorage.setItem("vinollama.language", "en");
+  });
+
   test("renders the simple chat shell and toggles theme and settings panel", async () => {
     setupFetch();
     render(<App />);
@@ -127,6 +143,48 @@ describe("App chat experience", () => {
     expect(await screen.findByText("Hi there.")).toBeInTheDocument();
     const settingsPanel = screen.getByLabelText("Chat settings");
     expect(within(settingsPanel).getByDisplayValue("Answer briefly.")).toBeInTheDocument();
+  });
+
+  test("saves OpenVINO and llama.cpp backend settings from the GUI", async () => {
+    const { calls } = setupFetch();
+    render(<App />);
+
+    await screen.findByText("New chat");
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.selectOptions(screen.getByLabelText("Backend"), "openvino");
+    await userEvent.type(screen.getByLabelText("OpenVINO llama.cpp server"), "C:\\tools\\llama-openvino.exe");
+    await userEvent.type(screen.getByLabelText("CPU llama.cpp server"), "C:\\tools\\llama-cpu.exe");
+    await userEvent.type(screen.getByLabelText("OpenVINO device"), "GPU.0");
+    await userEvent.clear(screen.getByLabelText("OpenVINO extra args"));
+    await userEvent.type(screen.getByLabelText("OpenVINO extra args"), "--device GPU");
+    await userEvent.click(screen.getByLabelText("Allow unverified llama.cpp flags"));
+    await userEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => {
+      const settingsCall = calls.find((call) => call.url === `${apiBase}/api/settings` && call.init?.method === "POST");
+      expect(settingsCall).toBeDefined();
+      const body = JSON.parse(String(settingsCall?.init?.body));
+      expect(body.runtime).toMatchObject({
+        backend: "openvino",
+        llama_openvino_bin: "C:\\tools\\llama-openvino.exe",
+        llama_cpu_bin: "C:\\tools\\llama-cpu.exe",
+        openvino_device: "GPU.0",
+        extra_openvino_args: ["--device", "GPU"],
+        allow_unverified_flags: true,
+      });
+    });
+  });
+
+  test("switches the desktop shell to Simplified Chinese", async () => {
+    setupFetch();
+    render(<App />);
+
+    expect(await screen.findByText("New chat")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Language"), "zh-CN");
+
+    expect(await screen.findByText("新聊天")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "设置" })).toBeInTheDocument();
+    expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
   });
 });
 

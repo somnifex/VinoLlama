@@ -1,5 +1,6 @@
 # Backends
 
+
 VinoLlama manages llama.cpp processes instead of reimplementing inference.
 
 Implemented backend modes:
@@ -16,13 +17,14 @@ The OpenVINO backend behavior follows the llama.cpp OpenVINO backend documentati
 
 Useful environment variables:
 
-- `GGML_OPENVINO_DEVICE`: selects the OpenVINO target device, such as `CPU`, `GPU`, `NPU`, or a specific GPU target.
+- `GGML_OPENVINO_DEVICE`: selects the OpenVINO target device, such as `CPU`, `GPU`, `NPU`, or a specific GPU target. VinoLlama can also set this per process from `runtime.openvino_device`.
 - `GGML_OPENVINO_STATEFUL_EXECUTION=1`: recommended when using GPU targets if stateless execution causes runtime issues.
 
 VinoLlama does not download or build llama.cpp automatically. Configure binaries with:
 
 - `VINOLLAMA_LLAMA_OPENVINO_BIN` or `runtime.llama_openvino_bin`
 - `VINOLLAMA_LLAMA_CPU_BIN` or `runtime.llama_cpu_bin`
+- `VINOLLAMA_OPENVINO_DEVICE`, `GGML_OPENVINO_DEVICE`, or `runtime.openvino_device`
 
 VinoLlama starts llama.cpp with localhost binding by default:
 
@@ -63,6 +65,7 @@ Required configuration:
 
 - `runtime.llama_openvino_bin`
 - `runtime.llama_cpu_bin`
+- `runtime.openvino_device`
 - `runtime.backend`
 - `runtime.internal_port_start`
 - `runtime.idle_timeout`
@@ -102,6 +105,7 @@ runtime:
   ready_timeout: 30s
   llama_openvino_bin: ""
   llama_cpu_bin: ""
+  openvino_device: ""
   internal_port_start: 21435
   health_path: ""
   extra_openvino_args: []

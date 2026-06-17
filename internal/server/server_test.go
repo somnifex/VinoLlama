@@ -200,7 +200,7 @@ func TestAPISettingsRejectsUnsafeValues(t *testing.T) {
 		t.Fatalf("telemetry status = %d, want 400", resp.StatusCode)
 	}
 
-	resp, err = http.Post(api.URL+"/api/settings", "application/json", bytes.NewBufferString(`{"runtime":{"backend":"cpu","idle_timeout":"1m"}}`))
+	resp, err = http.Post(api.URL+"/api/settings", "application/json", bytes.NewBufferString(`{"runtime":{"backend":"cpu","idle_timeout":"1m","ready_timeout":"45s","llama_openvino_bin":"C:\\tools\\llama-openvino.exe","llama_cpu_bin":"C:\\tools\\llama-cpu.exe","openvino_device":"GPU.0","health_path":"/health","extra_openvino_args":["--device","GPU"],"extra_cpu_args":["--threads","8"],"allow_unverified_flags":true}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,8 +210,16 @@ func TestAPISettingsRejectsUnsafeValues(t *testing.T) {
 	}
 	var payload struct {
 		Runtime struct {
-			Backend     string `json:"backend"`
-			IdleTimeout string `json:"idle_timeout"`
+			Backend              string   `json:"backend"`
+			IdleTimeout          string   `json:"idle_timeout"`
+			ReadyTimeout         string   `json:"ready_timeout"`
+			LlamaOpenVINOBin     string   `json:"llama_openvino_bin"`
+			LlamaCPUBin          string   `json:"llama_cpu_bin"`
+			OpenVINODevice       string   `json:"openvino_device"`
+			HealthPath           string   `json:"health_path"`
+			ExtraOpenVINOArgs    []string `json:"extra_openvino_args"`
+			ExtraCPUArgs         []string `json:"extra_cpu_args"`
+			AllowUnverifiedFlags bool     `json:"allow_unverified_flags"`
 		} `json:"runtime"`
 		Persisted       bool `json:"persisted"`
 		RestartRequired bool `json:"restart_required"`
@@ -219,8 +227,71 @@ func TestAPISettingsRejectsUnsafeValues(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Runtime.Backend != "cpu" || payload.Runtime.IdleTimeout != "1m0s" || payload.Persisted || !payload.RestartRequired {
+	if payload.Runtime.Backend != "cpu" ||
+		payload.Runtime.IdleTimeout != "1m0s" ||
+		payload.Runtime.ReadyTimeout != "45s" ||
+		payload.Runtime.LlamaOpenVINOBin != `C:\tools\llama-openvino.exe` ||
+		payload.Runtime.LlamaCPUBin != `C:\tools\llama-cpu.exe` ||
+		payload.Runtime.OpenVINODevice != "GPU.0" ||
+		payload.Runtime.HealthPath != "/health" ||
+		len(payload.Runtime.ExtraOpenVINOArgs) != 2 ||
+		len(payload.Runtime.ExtraCPUArgs) != 2 ||
+		!payload.Runtime.AllowUnverifiedFlags ||
+		payload.Persisted ||
+		!payload.RestartRequired {
 		t.Fatalf("settings payload = %#v", payload)
+	}
+}
+
+func TestAPILocalCORSAllowsDesktopAndLocalDevelopmentOrigins(t *testing.T) {
+	handler, manager := newFakeAPIHandler(t)
+	defer manager.ShutdownAll(context.Background())
+
+	tests := []struct {
+		name   string
+		origin string
+	}{
+		{name: "wails desktop", origin: "wails://wails.localhost"},
+		{name: "localhost dev", origin: "http://localhost:5173"},
+		{name: "loopback dev", origin: "http://127.0.0.1:5173"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodOptions, "/api/settings", nil)
+			req.Header.Set("Origin", tt.origin)
+			req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want 204", rec.Code)
+			}
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != tt.origin {
+				t.Fatalf("allow origin = %q, want %q", got, tt.origin)
+			}
+			if methods := rec.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(methods, http.MethodPost) {
+				t.Fatalf("allow methods = %q, want POST included", methods)
+			}
+		})
+	}
+}
+
+func TestAPILocalCORSRejectsExternalOrigin(t *testing.T) {
+	handler, manager := newFakeAPIHandler(t)
+	defer manager.ShutdownAll(context.Background())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	req.Header.Set("Origin", "https://example.com")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("external origin was allowed: %q", got)
 	}
 }
 

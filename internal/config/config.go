@@ -37,6 +37,7 @@ type RuntimeConfig struct {
 	ReadyTimeout         time.Duration
 	LlamaOpenVINOBin     string
 	LlamaCPUBin          string
+	OpenVINODevice       string
 	InternalPortStart    int
 	HealthPath           string
 	ExtraOpenVINOArgs    []string
@@ -221,6 +222,12 @@ func applyEnv(cfg *Config) {
 	if value := os.Getenv("VINOLLAMA_LLAMA_CPU_BIN"); value != "" {
 		cfg.Runtime.LlamaCPUBin = value
 	}
+	if value := os.Getenv("GGML_OPENVINO_DEVICE"); value != "" {
+		cfg.Runtime.OpenVINODevice = value
+	}
+	if value := os.Getenv("VINOLLAMA_OPENVINO_DEVICE"); value != "" {
+		cfg.Runtime.OpenVINODevice = value
+	}
 	if value := os.Getenv("VINOLLAMA_LOG_LEVEL"); value != "" {
 		cfg.Logging.Level = value
 	}
@@ -316,6 +323,8 @@ func setValue(cfg *Config, section, key, value string) error {
 			cfg.Runtime.LlamaOpenVINOBin = value
 		case "llama_cpu_bin":
 			cfg.Runtime.LlamaCPUBin = value
+		case "openvino_device":
+			cfg.Runtime.OpenVINODevice = value
 		case "internal_port_start":
 			parsed, err := strconv.Atoi(value)
 			if err != nil {

@@ -377,6 +377,7 @@ func (m *Manager) startModel(ctx context.Context, modelName, backend string, opt
 		Temperature: m.cfg.Generation.Temperature,
 		TopP:        m.cfg.Generation.TopP,
 		ExtraArgs:   extraArgs,
+		Env:         openVINOEnv(actualBackend, m.cfg.Runtime.OpenVINODevice),
 	}, caps, m.cfg.Runtime.AllowUnverifiedFlags)
 	if err != nil {
 		return nil, err
@@ -412,6 +413,14 @@ func (m *Manager) startModel(ctx context.Context, modelName, backend string, opt
 	}
 	handle.MarkReady()
 	return handle, nil
+}
+
+func openVINOEnv(backend, device string) []string {
+	device = strings.TrimSpace(device)
+	if backend != "openvino" || device == "" {
+		return nil
+	}
+	return []string{"GGML_OPENVINO_DEVICE=" + device}
 }
 
 func (m *Manager) resolveBackend(ctx context.Context, backend string) (string, llamacpp.ResolvedBinary, error) {
