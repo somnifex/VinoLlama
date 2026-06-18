@@ -670,3 +670,41 @@ func setAPITestHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	return home
 }
+
+func TestAPIDoctorReturnsLowercaseJSONFields(t *testing.T) {
+	handler, manager := newFakeAPIHandler(t)
+	defer manager.ShutdownAll(context.Background())
+	api := httptest.NewServer(handler)
+	defer api.Close()
+
+	resp, err := http.Get(api.URL + "/api/doctor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var checks []map[string]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&checks); err != nil {
+		t.Fatalf("decode doctor response: %v", err)
+	}
+	if len(checks) == 0 {
+		t.Fatal("doctor returned no checks")
+	}
+
+	for i, check := range checks {
+		for key := range check {
+			if key != strings.ToLower(key) {
+				t.Errorf("check[%d] has non-lowercase JSON key %q; frontend expects lowercase fields", i, key)
+			}
+		}
+		if _, ok := check["name"]; !ok {
+			t.Errorf("check[%d] missing lowercase name field", i)
+		}
+		if _, ok := check["level"]; !ok {
+			t.Errorf("check[%d] missing lowercase level field", i)
+		}
+	}
+}

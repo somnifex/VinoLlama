@@ -24,12 +24,12 @@ const (
 )
 
 type Check struct {
-	Name    string
-	Level   Level
-	What    string
-	Reason  string
-	Fix     string
-	Details string
+	Name    string `json:"name"`
+	Level   Level `json:"level"`
+	What    string `json:"what"`
+	Reason  string `json:"reason"`
+	Fix     string `json:"fix"`
+	Details string `json:"details"`
 }
 
 type Report []Check

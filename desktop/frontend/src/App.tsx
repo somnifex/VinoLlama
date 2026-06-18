@@ -1307,8 +1307,8 @@ function DoctorPanel({ service, checks, copy }: { service: ServiceStatus; checks
           <EmptyState title={copy.doctor.noReportTitle} body={copy.doctor.noReportBody} />
         ) : (
           checks.map((check) => (
-            <article className="doctor-row" key={`${check.name}-${check.level}`}>
-              <span className={`level ${check.level.toLowerCase()}`}>{check.level}</span>
+            <article className="doctor-row" key={`${check.name || "check"}-${check.level || "unknown"}`}>
+              <span className={`level ${(check.level || "unknown").toLowerCase()}`}>{check.level || "unknown"}</span>
               <div>
                 <strong>{check.name}</strong>
                 <p>{check.reason || check.what || copy.doctor.completed}</p>
