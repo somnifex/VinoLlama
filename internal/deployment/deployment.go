@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,16 +17,23 @@ import (
 	"vinollama/internal/llamacpp"
 )
 
-const OpenVINODocsURL = "https://github.com/ggml-org/llama.cpp/blob/master/docs/backend/OPENVINO.md"
+const (
+	OpenVINODocsURL     = "https://github.com/ggml-org/llama.cpp/blob/master/docs/backend/OPENVINO.md"
+	OpenVINODownloadURL = "https://www.intel.com/content/www/us/en/developer/tools/openvino-toolkit/download.html"
+	LlamaCppReleasesURL = "https://github.com/ggml-org/llama.cpp/releases"
+)
 
 type Report struct {
-	Platform        string            `json:"platform"`
-	OpenVINO        RuntimeStatus     `json:"openvino"`
-	Tools           []ToolStatus      `json:"tools"`
-	Binaries        []BinaryCandidate `json:"binaries"`
-	Recommendations []string          `json:"recommendations"`
-	BuildPlans      []BuildPlan       `json:"build_plans"`
-	Reference       string            `json:"reference"`
+	Platform        string             `json:"platform"`
+	OpenVINO        RuntimeStatus      `json:"openvino"`
+	Managed         ManagedInstall     `json:"managed"`
+	Tools           []ToolStatus       `json:"tools"`
+	Binaries        []BinaryCandidate  `json:"binaries"`
+	Readiness       string             `json:"readiness"`
+	Actions         []DeploymentAction `json:"actions"`
+	Recommendations []string           `json:"recommendations"`
+	BuildPlans      []BuildPlan        `json:"build_plans"`
+	Reference       string             `json:"reference"`
 }
 
 type RuntimeStatus struct {
@@ -41,6 +49,12 @@ type ToolStatus struct {
 	Found bool   `json:"found"`
 	Path  string `json:"path,omitempty"`
 	Fix   string `json:"fix,omitempty"`
+}
+
+type ManagedInstall struct {
+	Root        string `json:"root"`
+	OpenVINODir string `json:"openvino_dir"`
+	CPUDir      string `json:"cpu_dir"`
 }
 
 type BinaryCandidate struct {
@@ -67,14 +81,33 @@ type BuildStep struct {
 	Note    string `json:"note,omitempty"`
 }
 
+type DeploymentAction struct {
+	ID              string `json:"id"`
+	Kind            string `json:"kind"`
+	Backend         string `json:"backend,omitempty"`
+	Status          string `json:"status"`
+	Title           string `json:"title"`
+	Summary         string `json:"summary"`
+	ButtonLabel     string `json:"button_label,omitempty"`
+	Path            string `json:"path,omitempty"`
+	InstallDir      string `json:"install_dir,omitempty"`
+	DocsURL         string `json:"docs_url,omitempty"`
+	Recommended     bool   `json:"recommended"`
+	RequiresNetwork bool   `json:"requires_network"`
+	Destructive     bool   `json:"destructive"`
+}
+
 func Inspect(ctx context.Context, cfg config.Config) Report {
 	report := Report{
 		Platform:  runtime.GOOS + "/" + runtime.GOARCH,
 		OpenVINO:  detectOpenVINO(),
+		Managed:   managedInstall(),
 		Tools:     detectTools(),
 		Reference: OpenVINODocsURL,
 	}
 	report.Binaries = discoverBinaries(ctx, cfg)
+	report.Readiness = readiness(report)
+	report.Actions = deploymentActions(report)
 	report.BuildPlans = buildPlans(report.OpenVINO)
 	report.Recommendations = recommendations(report)
 	return report
@@ -103,6 +136,35 @@ func SelectBinary(ctx context.Context, cfg config.Config, kind, path string) (co
 		next.Runtime.LlamaCPUBin = candidate.Path
 	}
 	return next, candidate, nil
+}
+
+func DeployBinary(ctx context.Context, cfg config.Config, kind, path string) (config.Config, BinaryCandidate, error) {
+	next, candidate, err := SelectBinary(ctx, cfg, kind, path)
+	if err != nil {
+		return cfg, candidate, err
+	}
+	target, err := managedBinaryPath(candidate.Kind, candidate.Path)
+	if err != nil {
+		return cfg, candidate, err
+	}
+	if !samePath(candidate.Path, target) {
+		if err := copyExecutable(candidate.Path, target); err != nil {
+			return cfg, candidate, fmt.Errorf("copy binary into VinoLlama managed runtime directory: %w", err)
+		}
+	}
+	deployed := inspectBinary(ctx, candidate.Kind, target, "managed")
+	if !deployed.Usable {
+		return cfg, deployed, errors.New(deployed.Reason)
+	}
+	if candidate.Kind == string(llamacpp.BinaryKindOpenVINO) && !deployed.OpenVINOCapable {
+		return cfg, deployed, errors.New("managed binary is executable, but OpenVINO capability could not be confirmed")
+	}
+	if candidate.Kind == string(llamacpp.BinaryKindOpenVINO) {
+		next.Runtime.LlamaOpenVINOBin = deployed.Path
+	} else {
+		next.Runtime.LlamaCPUBin = deployed.Path
+	}
+	return next, deployed, nil
 }
 
 func detectOpenVINO() RuntimeStatus {
@@ -173,6 +235,12 @@ func discoverBinaries(ctx context.Context, cfg config.Config) []BinaryCandidate 
 	add("cpu", os.Getenv("VINOLLAMA_LLAMA_CPU_BIN"), "env")
 	add("openvino", cfg.Runtime.LlamaOpenVINOBin, "config")
 	add("cpu", cfg.Runtime.LlamaCPUBin, "config")
+	for _, path := range managedBinaryCandidates("openvino") {
+		add("openvino", path, "managed")
+	}
+	for _, path := range managedBinaryCandidates("cpu") {
+		add("cpu", path, "managed")
+	}
 	for _, path := range binarySearchCandidates() {
 		kind := "cpu"
 		lower := strings.ToLower(path)
@@ -431,4 +499,244 @@ func parseVersion(help string) string {
 		}
 	}
 	return "unknown"
+}
+
+func managedInstall() ManagedInstall {
+	root, _ := config.DefaultRootDir()
+	binRoot := filepath.Join(root, "bin")
+	return ManagedInstall{
+		Root:        binRoot,
+		OpenVINODir: filepath.Join(binRoot, "openvino"),
+		CPUDir:      filepath.Join(binRoot, "cpu"),
+	}
+}
+
+func managedBinaryPath(kind, source string) (string, error) {
+	install := managedInstall()
+	dir := install.CPUDir
+	if kind == string(llamacpp.BinaryKindOpenVINO) {
+		dir = install.OpenVINODir
+	} else if kind != string(llamacpp.BinaryKindCPU) {
+		return "", fmt.Errorf("kind must be one of openvino, cpu")
+	}
+	base := filepath.Base(source)
+	if strings.TrimSpace(base) == "" || base == "." || base == string(filepath.Separator) {
+		base = "llama-server"
+		if runtime.GOOS == "windows" {
+			base += ".exe"
+		}
+	}
+	return filepath.Join(dir, base), nil
+}
+
+func managedBinaryCandidates(kind string) []string {
+	install := managedInstall()
+	var dirs []string
+	switch kind {
+	case "openvino":
+		dirs = []string{install.OpenVINODir, filepath.Join(install.Root, "llama-openvino")}
+	case "cpu":
+		dirs = []string{install.CPUDir, filepath.Join(install.Root, "llama-cpu")}
+	default:
+		return nil
+	}
+	var out []string
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			path := filepath.Join(dir, entry.Name())
+			info, err := entry.Info()
+			if err == nil && isExecutablePath(path, info) {
+				out = append(out, path)
+			}
+		}
+	}
+	return out
+}
+
+func copyExecutable(source, target string) error {
+	info, err := os.Stat(source)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory", source)
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, executableFileMode(info.Mode()))
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+func executableFileMode(mode os.FileMode) os.FileMode {
+	if runtime.GOOS == "windows" {
+		return 0o755
+	}
+	if mode&0o111 == 0 {
+		return mode | 0o755
+	}
+	return mode.Perm()
+}
+
+func samePath(a, b string) bool {
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	if errA == nil {
+		a = absA
+	}
+	if errB == nil {
+		b = absB
+	}
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+func readiness(report Report) string {
+	openvinoReady := bestBinary(report.Binaries, "openvino") != nil
+	cpuReady := bestBinary(report.Binaries, "cpu") != nil
+	switch {
+	case openvinoReady && cpuReady:
+		return "ready"
+	case openvinoReady:
+		return "openvino_ready"
+	case cpuReady:
+		return "cpu_fallback_ready"
+	default:
+		return "missing"
+	}
+}
+
+func deploymentActions(report Report) []DeploymentAction {
+	var actions []DeploymentAction
+	if openvino := bestBinary(report.Binaries, "openvino"); openvino != nil {
+		actions = append(actions, deployAction("deploy_openvino", "openvino", *openvino, report.Managed.OpenVINODir, openvino.Source == "managed" || openvino.Source == "config"))
+	} else if !report.OpenVINO.Found {
+		actions = append(actions, DeploymentAction{
+			ID:              "install_openvino_runtime",
+			Kind:            "manual_install",
+			Backend:         "openvino",
+			Status:          "missing",
+			Title:           "Install OpenVINO Runtime",
+			Summary:         "OpenVINO acceleration is not ready yet. Install the official OpenVINO Runtime first; VinoLlama will re-scan local setup files after restart or refresh.",
+			DocsURL:         OpenVINODownloadURL,
+			Recommended:     true,
+			RequiresNetwork: true,
+		})
+	} else {
+		actions = append(actions, DeploymentAction{
+			ID:              "get_llama_openvino",
+			Kind:            "manual_download",
+			Backend:         "openvino",
+			Status:          "missing",
+			Title:           "Add an OpenVINO llama.cpp server",
+			Summary:         "OpenVINO Runtime was found, but no OpenVINO-capable llama-server binary is available. Add a trusted llama.cpp OpenVINO build, then let VinoLlama deploy it into the managed runtime directory.",
+			InstallDir:      report.Managed.OpenVINODir,
+			DocsURL:         OpenVINODocsURL,
+			Recommended:     true,
+			RequiresNetwork: true,
+		})
+	}
+
+	if cpu := bestBinary(report.Binaries, "cpu"); cpu != nil {
+		actions = append(actions, deployAction("deploy_cpu", "cpu", *cpu, report.Managed.CPUDir, cpu.Source == "managed" || cpu.Source == "config"))
+	} else {
+		actions = append(actions, DeploymentAction{
+			ID:              "get_llama_cpu",
+			Kind:            "manual_download",
+			Backend:         "cpu",
+			Status:          "missing",
+			Title:           "Add a CPU llama.cpp server fallback",
+			Summary:         "No CPU llama-server fallback is available. Add a trusted llama.cpp server binary so VinoLlama can still run when OpenVINO is unavailable.",
+			InstallDir:      report.Managed.CPUDir,
+			DocsURL:         LlamaCppReleasesURL,
+			Recommended:     true,
+			RequiresNetwork: true,
+		})
+	}
+	return actions
+}
+
+func deployAction(id, backend string, binary BinaryCandidate, installDir string, alreadyManaged bool) DeploymentAction {
+	status := "recommended"
+	title := "Deploy recommended " + backend + " backend"
+	summary := "VinoLlama found a usable llama.cpp server and can copy it into its managed runtime directory, then use it automatically."
+	button := "Deploy " + backend
+	if alreadyManaged {
+		status = "ready"
+		title = strings.ToUpper(backend[:1]) + backend[1:] + " backend is ready"
+		summary = "VinoLlama already has a validated llama.cpp server for this backend."
+		button = ""
+	}
+	return DeploymentAction{
+		ID:          id,
+		Kind:        "deploy_binary",
+		Backend:     backend,
+		Status:      status,
+		Title:       title,
+		Summary:     summary,
+		ButtonLabel: button,
+		Path:        binary.Path,
+		InstallDir:  installDir,
+		Recommended: !alreadyManaged,
+	}
+}
+
+func bestBinary(binaries []BinaryCandidate, kind string) *BinaryCandidate {
+	var best *BinaryCandidate
+	bestScore := -1
+	for i := range binaries {
+		binary := binaries[i]
+		if binary.Kind != kind || !binary.Usable {
+			continue
+		}
+		if kind == "openvino" && !binary.OpenVINOCapable {
+			continue
+		}
+		score := sourceScore(binary.Source)
+		if score > bestScore {
+			best = &binaries[i]
+			bestScore = score
+		}
+	}
+	return best
+}
+
+func sourceScore(source string) int {
+	switch source {
+	case "config":
+		return 90
+	case "managed":
+		return 80
+	case "env":
+		return 70
+	case "discovered":
+		return 50
+	case "path":
+		return 40
+	default:
+		return 10
+	}
 }

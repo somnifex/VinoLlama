@@ -25,16 +25,25 @@ import (
 )
 
 type Server struct {
-	cfg     config.Config
-	manager *vinoruntime.Manager
-	store   models.Store
-	convs   conversations.Store
+	cfg            config.Config
+	manager        *vinoruntime.Manager
+	store          models.Store
+	convs          conversations.Store
+	onConfigUpdate func(config.Config)
+}
+
+type HandlerOptions struct {
+	OnConfigUpdate func(config.Config)
 }
 
 func NewHandler(cfg config.Config, manager *vinoruntime.Manager, store models.Store) http.Handler {
+	return NewHandlerWithOptions(cfg, manager, store, HandlerOptions{})
+}
+
+func NewHandlerWithOptions(cfg config.Config, manager *vinoruntime.Manager, store models.Store, options HandlerOptions) http.Handler {
 	conversationDir, _ := config.ConversationsDirectory(cfg)
 	convs, _ := conversations.NewStore(conversationDir)
-	s := &Server{cfg: cfg, manager: manager, store: store, convs: convs}
+	s := &Server{cfg: cfg, manager: manager, store: store, convs: convs, onConfigUpdate: options.OnConfigUpdate}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/tags", s.handleTags)
@@ -49,11 +58,22 @@ func NewHandler(cfg config.Config, manager *vinoruntime.Manager, store models.St
 	mux.HandleFunc("/api/settings", s.handleSettings)
 	mux.HandleFunc("/api/deployment", s.handleDeployment)
 	mux.HandleFunc("/api/deployment/select", s.handleDeploymentSelect)
+	mux.HandleFunc("/api/deployment/deploy", s.handleDeploymentDeploy)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/models/import", s.handleModelsImport)
 	mux.HandleFunc("/api/conversations", s.handleConversations)
 	mux.HandleFunc("/api/conversations/", s.handleConversationByID)
 	return localCORSMiddleware(mux)
+}
+
+func (s *Server) setConfig(next config.Config) {
+	s.cfg = next
+	if s.manager != nil {
+		s.manager.UpdateConfig(next)
+	}
+	if s.onConfigUpdate != nil {
+		s.onConfigUpdate(next)
+	}
 }
 
 func localCORSMiddleware(next http.Handler) http.Handler {
@@ -351,7 +371,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Settings request is invalid.", err.Error(), "Use safe local-first values and keep telemetry disabled.", "")
 			return
 		}
-		s.cfg = next
+		s.setConfig(next)
 		writeJSON(w, http.StatusOK, settingsResponse(s.cfg, false, true))
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed.", "Only GET and POST are supported.", "Use GET or POST /api/settings.", "")
@@ -384,9 +404,35 @@ func (s *Server) handleDeploymentSelect(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "Deployment binary could not be selected.", err.Error(), "Select a local llama.cpp server binary that passes --help and matches the requested backend.", fmt.Sprintf("kind=%s path=%s", req.Kind, req.Path))
 		return
 	}
-	s.cfg = next
+	s.setConfig(next)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"selected": true,
+		"binary":   candidate,
+		"settings": settingsResponse(s.cfg, false, true),
+	})
+}
+
+func (s *Server) handleDeploymentDeploy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed.", "Only POST is supported.", "Use POST /api/deployment/deploy.", "")
+		return
+	}
+	var req struct {
+		Kind string `json:"kind"`
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Deployment request could not be decoded.", err.Error(), `Send JSON like {"kind":"openvino","path":"C:\\path\\llama-server.exe"}.`, "")
+		return
+	}
+	next, candidate, err := deployment.DeployBinary(r.Context(), s.cfg, req.Kind, req.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Deployment binary could not be deployed.", err.Error(), "Choose a trusted local llama.cpp server binary that passes --help. VinoLlama will copy it into its managed runtime directory.", fmt.Sprintf("kind=%s path=%s", req.Kind, req.Path))
+		return
+	}
+	s.setConfig(next)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deployed": true,
 		"binary":   candidate,
 		"settings": settingsResponse(s.cfg, false, true),
 	})

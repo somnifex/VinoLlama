@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -353,6 +354,48 @@ func TestAPIDeploymentStatusAndSelectCPU(t *testing.T) {
 	}
 }
 
+func TestAPIDeploymentDeployCPU(t *testing.T) {
+	home := setAPITestHome(t)
+	t.Setenv("VINOLLAMA_FAKE_LLAMA_HELP", "1")
+	handler, manager := newFakeAPIHandler(t)
+	defer manager.ShutdownAll(context.Background())
+	api := httptest.NewServer(handler)
+	defer api.Close()
+
+	body, err := json.Marshal(map[string]string{"kind": "cpu", "path": os.Args[0]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(api.URL+"/api/deployment/deploy", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		text, _ := io.ReadAll(resp.Body)
+		t.Fatalf("deployment deploy status = %d body=%s", resp.StatusCode, text)
+	}
+	var payload struct {
+		Deployed bool `json:"deployed"`
+		Binary   struct {
+			Path   string `json:"path"`
+			Source string `json:"source"`
+		} `json:"binary"`
+		Settings struct {
+			Runtime struct {
+				LlamaCPUBin string `json:"llama_cpu_bin"`
+			} `json:"runtime"`
+		} `json:"settings"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	wantDir := filepath.Join(home, ".vinollama", "bin", "cpu")
+	if !payload.Deployed || payload.Binary.Source != "managed" || filepath.Dir(payload.Binary.Path) != wantDir || payload.Settings.Runtime.LlamaCPUBin != payload.Binary.Path {
+		t.Fatalf("deployment deploy payload = %#v wantDir=%s", payload, wantDir)
+	}
+}
+
 func TestAPILogsReturnsRuntimeLogTail(t *testing.T) {
 	handler, manager := newFakeAPIHandler(t)
 	defer manager.ShutdownAll(context.Background())
@@ -613,4 +656,17 @@ func freeAPIPort(t *testing.T) int {
 		t.Fatal(err)
 	}
 	return port
+}
+
+func setAPITestHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+		t.Setenv("HOMEDRIVE", "")
+		t.Setenv("HOMEPATH", "")
+		return home
+	}
+	t.Setenv("HOME", home)
+	return home
 }

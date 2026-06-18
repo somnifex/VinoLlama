@@ -96,6 +96,14 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 	}, nil
 }
 
+func (m *Manager) UpdateConfig(cfg config.Config) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cfg = cfg
+	m.waiter = llamacpp.NewReadyWaiter(cfg.Runtime.HealthPath, cfg.Runtime.ReadyTimeout)
+	m.checker = llamacpp.NewHTTPHealthChecker(cfg.Runtime.HealthPath)
+}
+
 func (m *Manager) ProxyGenerate(ctx context.Context, req llamacpp.GenerateRequest) (*llamacpp.GenerateResponse, error) {
 	return m.ProxyGenerateWithOptions(ctx, req, StartOptions{})
 }

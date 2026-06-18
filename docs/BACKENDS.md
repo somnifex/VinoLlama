@@ -21,7 +21,7 @@ Useful environment variables:
 - `GGML_OPENVINO_DEVICE`: selects the OpenVINO target device, such as `CPU`, `GPU`, `NPU`, or a specific GPU target. VinoLlama can also set this per process from `runtime.openvino_device`.
 - `GGML_OPENVINO_STATEFUL_EXECUTION=1`: recommended when using GPU targets if stateless execution causes runtime issues.
 
-VinoLlama provides a local deployment manager through `GET /api/deployment` and `POST /api/deployment/select`. It detects OpenVINO Runtime setup, required build tools, local llama.cpp server candidates, and produces Windows/Linux build plans based on the llama.cpp OpenVINO guide. It does not silently download, build, or execute remote code.
+VinoLlama provides a local deployment manager through `GET /api/deployment`, `POST /api/deployment/select`, and `POST /api/deployment/deploy`. It detects OpenVINO Runtime setup, required build tools, VinoLlama-managed runtime directories, and local llama.cpp server candidates. It also returns end-user recommendations and can copy a validated local llama-server into `~/.vinollama/bin` or `%USERPROFILE%\\.vinollama\\bin` for managed use. It does not silently download, build, or execute remote code.
 
 You can still configure binaries directly with:
 
@@ -47,7 +47,7 @@ Current implementation status:
 
 - CPU backend management is implemented for configured llama.cpp-compatible server binaries and covered by fake process integration tests.
 - OpenVINO backend management uses the same resolver, capability detector, command builder, process manager, and proxy path, but remains hardware/binary dependent until validated with a real OpenVINO-enabled llama.cpp server binary.
-- Deployment management is implemented for local prerequisite inspection, build-plan generation, candidate discovery, and validated binary selection.
+- Deployment management is implemented for local prerequisite inspection, end-user recommendation generation, candidate discovery, validated binary selection, and managed local deployment of user-selected llama.cpp server binaries.
 - OpenVINO-specific flags are not hardcoded; they must be detected from `--help` or provided explicitly through extra args.
 - The desktop Runtime and Chat views display the active backend state from the local API.
 

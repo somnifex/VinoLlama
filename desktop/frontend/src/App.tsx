@@ -4,6 +4,7 @@ import {
   ChatMessage,
   ConversationSummary,
   deleteConversation,
+  deployDeploymentBinary,
   DeploymentReport,
   DoctorCheck,
   exportConversationMarkdown,
@@ -927,6 +928,8 @@ function SettingsPanel({
   const [extraOpenVINOArgs, setExtraOpenVINOArgs] = useState(formatArgLine(settings?.runtime?.extra_openvino_args));
   const [extraCPUArgs, setExtraCPUArgs] = useState(formatArgLine(settings?.runtime?.extra_cpu_args));
   const [allowUnverifiedFlags, setAllowUnverifiedFlags] = useState(settings?.runtime?.allow_unverified_flags ?? false);
+  const [startServiceOnLaunch, setStartServiceOnLaunch] = useState(settings?.desktop?.start_service_on_launch ?? true);
+  const [stopServiceOnExit, setStopServiceOnExit] = useState(settings?.desktop?.stop_service_on_exit ?? false);
   const [ctxSize, setCtxSize] = useState(`${settings?.generation?.ctx_size ?? 4096}`);
   const [temperature, setTemperature] = useState(`${settings?.generation?.temperature ?? 0.7}`);
   const [topP, setTopP] = useState(`${settings?.generation?.top_p ?? 0.9}`);
@@ -934,6 +937,7 @@ function SettingsPanel({
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [selectingBinary, setSelectingBinary] = useState("");
+  const [deployingBinary, setDeployingBinary] = useState("");
 
   useEffect(() => {
     setBackend(settings?.runtime?.backend ?? "auto");
@@ -947,6 +951,8 @@ function SettingsPanel({
     setExtraOpenVINOArgs(formatArgLine(settings?.runtime?.extra_openvino_args));
     setExtraCPUArgs(formatArgLine(settings?.runtime?.extra_cpu_args));
     setAllowUnverifiedFlags(settings?.runtime?.allow_unverified_flags ?? false);
+    setStartServiceOnLaunch(settings?.desktop?.start_service_on_launch ?? true);
+    setStopServiceOnExit(settings?.desktop?.stop_service_on_exit ?? false);
     setCtxSize(`${settings?.generation?.ctx_size ?? 4096}`);
     setTemperature(`${settings?.generation?.temperature ?? 0.7}`);
     setTopP(`${settings?.generation?.top_p ?? 0.9}`);
@@ -1003,6 +1009,10 @@ function SettingsPanel({
         privacy: {
           telemetry: false,
         },
+        desktop: {
+          start_service_on_launch: startServiceOnLaunch,
+          stop_service_on_exit: stopServiceOnExit,
+        },
       });
       setNotice(saved.restart_required ? copy.common.savedRestart : copy.common.saved);
       await onRefresh();
@@ -1024,6 +1034,21 @@ function SettingsPanel({
       setNotice(error instanceof Error ? error.message : copy.settings.couldNotSave);
     } finally {
       setSelectingBinary("");
+    }
+  };
+
+  const deployRecommendedBinary = async (kind: string, path: string) => {
+    const key = `${kind}:${path}`;
+    setDeployingBinary(key);
+    setNotice("");
+    try {
+      await deployDeploymentBinary(kind, path);
+      setNotice(`${kind} backend deployed to the managed VinoLlama runtime directory.`);
+      await onRefresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : copy.settings.couldNotSave);
+    } finally {
+      setDeployingBinary("");
     }
   };
 
@@ -1054,6 +1079,26 @@ function SettingsPanel({
           <EditableRow label={copy.settings.readyTimeout} value={readyTimeout} onChange={setReadyTimeout} disabled={!service.running || saving} />
           <EditableRow label={copy.settings.internalPortStart} value={internalPortStart} onChange={setInternalPortStart} disabled={!service.running || saving} />
         </SettingGroup>
+        <SettingGroup title={copy.settings.desktopService}>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={startServiceOnLaunch}
+              onChange={(event) => setStartServiceOnLaunch(event.target.checked)}
+              disabled={!service.running || saving}
+            />
+            <span>{copy.settings.startServiceOnLaunch}</span>
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={stopServiceOnExit}
+              onChange={(event) => setStopServiceOnExit(event.target.checked)}
+              disabled={!service.running || saving}
+            />
+            <span>{copy.settings.stopServiceOnExit}</span>
+          </label>
+        </SettingGroup>
         <SettingGroup title={copy.settings.backendBinaries} wide>
           <EditableRow
             label={copy.settings.openVINOBinary}
@@ -1083,6 +1128,46 @@ function SettingsPanel({
         <SettingGroup title={copy.settings.deployment} wide>
           {deployment ? (
             <div className="deployment-panel">
+              <div className="deployment-row">
+                <strong>{copy.settings.deploymentReady}</strong>
+                <span className={deployment.readiness === "ready" ? "status-text ok" : "status-text warn"}>
+                  {deployment.readiness || copy.common.unknown}
+                </span>
+                {deployment.managed?.root && <small>Managed runtime directory: {deployment.managed.root}</small>}
+                {deployment.actions && deployment.actions.length > 0 && (
+                  <div className="deployment-action-list">
+                    {deployment.actions.map((action) => {
+                      const canDeploy = action.kind === "deploy_binary" && action.path && action.backend && action.status !== "ready";
+                      const key = `${action.backend}:${action.path || action.id}`;
+                      return (
+                        <article className="deployment-action-card" key={action.id}>
+                          <div>
+                            <span className={action.status === "ready" ? "status-chip ok" : "status-chip warn"}>{action.status}</span>
+                            <strong>{action.title}</strong>
+                            <small>{action.summary}</small>
+                            {action.install_dir && <code>{action.install_dir}</code>}
+                            {action.docs_url && (
+                              <a href={action.docs_url} target="_blank" rel="noreferrer">
+                                Open official guide
+                              </a>
+                            )}
+                          </div>
+                          {canDeploy && (
+                            <button
+                              type="button"
+                              className="secondary-action compact-action"
+                              disabled={!service.running || deployingBinary !== ""}
+                              onClick={() => void deployRecommendedBinary(action.backend || "", action.path || "")}
+                            >
+                              {deployingBinary === key ? "Deploying..." : action.button_label || "Deploy"}
+                            </button>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               <div className="deployment-row">
                 <strong>{copy.settings.openVINORuntime}</strong>
                 <span className={deployment.openvino.found ? "status-text ok" : "status-text warn"}>

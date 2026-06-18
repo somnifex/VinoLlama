@@ -57,6 +57,12 @@ export type SettingsStatus = {
     top_p?: number;
     threads?: number;
   };
+  desktop?: {
+    start_service_on_launch?: boolean;
+    stop_service_on_exit?: boolean;
+    theme?: string;
+    compact_mode?: boolean;
+  };
   privacy?: {
     telemetry?: boolean;
   };
@@ -83,8 +89,11 @@ export type LogsResponse = {
 export type DeploymentReport = {
   platform: string;
   openvino: DeploymentRuntimeStatus;
+  managed?: DeploymentManagedInstall;
   tools: DeploymentToolStatus[];
   binaries: DeploymentBinaryCandidate[];
+  readiness?: string;
+  actions?: DeploymentAction[];
   recommendations: string[];
   build_plans: DeploymentBuildPlan[];
   reference: string;
@@ -105,6 +114,12 @@ export type DeploymentToolStatus = {
   fix?: string;
 };
 
+export type DeploymentManagedInstall = {
+  root: string;
+  openvino_dir: string;
+  cpu_dir: string;
+};
+
 export type DeploymentBinaryCandidate = {
   kind: "openvino" | "cpu" | string;
   path: string;
@@ -121,6 +136,22 @@ export type DeploymentBuildPlan = {
   backend: string;
   description: string;
   steps: Array<{ shell: string; command: string; note?: string }>;
+};
+
+export type DeploymentAction = {
+  id: string;
+  kind: string;
+  backend?: string;
+  status: string;
+  title: string;
+  summary: string;
+  button_label?: string;
+  path?: string;
+  install_dir?: string;
+  docs_url?: string;
+  recommended: boolean;
+  requires_network: boolean;
+  destructive: boolean;
 };
 
 export type LogEntry = {
@@ -230,6 +261,11 @@ export async function fetchDeployment(signal?: AbortSignal): Promise<DeploymentR
 
 export async function selectDeploymentBinary(kind: string, path: string): Promise<DeploymentBinaryCandidate> {
   const payload = await postJSON<{ binary: DeploymentBinaryCandidate }>("/api/deployment/select", { kind, path });
+  return payload.binary;
+}
+
+export async function deployDeploymentBinary(kind: string, path: string): Promise<DeploymentBinaryCandidate> {
+  const payload = await postJSON<{ binary: DeploymentBinaryCandidate }>("/api/deployment/deploy", { kind, path });
   return payload.binary;
 }
 

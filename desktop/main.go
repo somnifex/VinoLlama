@@ -23,7 +23,8 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
-		OnStartup: app.startup,
+		OnStartup:  app.startup,
+		OnShutdown: app.shutdown,
 	})
 	if err != nil {
 		println("VinoLlama desktop failed to start:", err.Error())

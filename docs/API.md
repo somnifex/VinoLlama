@@ -31,6 +31,7 @@ GET    /api/settings
 POST   /api/settings
 GET    /api/deployment
 POST   /api/deployment/select
+POST   /api/deployment/deploy
 GET    /api/logs
 POST   /api/models/import
 GET    /api/conversations
@@ -175,13 +176,15 @@ Unsafe public binds such as `0.0.0.0` and `::` are rejected. `privacy.telemetry=
 
 Runtime settings include `runtime.backend`, `runtime.idle_timeout`, `runtime.ready_timeout`, `runtime.llama_openvino_bin`, `runtime.llama_cpu_bin`, `runtime.openvino_device`, `runtime.health_path`, `runtime.internal_port_start`, `runtime.extra_openvino_args`, `runtime.extra_cpu_args`, and `runtime.allow_unverified_flags`. `runtime.openvino_device` is passed to managed OpenVINO llama.cpp processes as `GGML_OPENVINO_DEVICE`.
 
-The desktop settings UI uses this endpoint for backend management, llama.cpp binary paths, OpenVINO device selection, advanced runtime arguments, context size, temperature, Top P, and threads. These settings currently apply to the running in-process configuration, not to a persistent config file.
+The desktop settings UI uses this endpoint for backend management, llama.cpp binary paths, OpenVINO device selection, desktop service lifecycle options, advanced runtime arguments, context size, temperature, Top P, and threads. These settings currently apply to the running in-process configuration, not to a persistent config file.
+
+Desktop lifecycle settings include `desktop.start_service_on_launch` and `desktop.stop_service_on_exit`. The Wails desktop shell starts the local API automatically by default and can stop managed llama.cpp runtime processes when the GUI closes if `stop_service_on_exit=true`.
 
 ## Deployment
 
-`GET /api/deployment` inspects local OpenVINO and llama.cpp deployment readiness. It reports OpenVINO Runtime or `setupvars` discovery, local build tools, discovered llama.cpp `llama-server` candidates, build plans derived from the llama.cpp OpenVINO backend guide, and recommendations for missing prerequisites.
+`GET /api/deployment` inspects local OpenVINO and llama.cpp deployment readiness. It reports OpenVINO Runtime or `setupvars` discovery, the VinoLlama managed runtime directory, local build tools, discovered llama.cpp `llama-server` candidates, readiness, end-user deployment actions, build plans derived from the llama.cpp OpenVINO backend guide, and recommendations for missing prerequisites.
 
-The deployment API does not silently download, build, or execute remote code. It returns local status and commands for the user to run deliberately.
+The deployment API does not silently download, build, or execute remote code. It may recommend official project pages, but network access and third-party installers remain explicit user actions.
 
 `POST /api/deployment/select` validates and adopts a discovered or user-provided llama.cpp server binary:
 
@@ -193,6 +196,17 @@ The deployment API does not silently download, build, or execute remote code. It
 ```
 
 For `kind=openvino`, the binary must pass `--help` and VinoLlama must be able to confirm OpenVINO capability from the help output, binary name, or OpenVINO build directory. The selected path updates the active in-memory runtime settings returned by `GET /api/settings`.
+
+`POST /api/deployment/deploy` validates a trusted local llama.cpp server binary, copies it into VinoLlama's managed runtime directory, and adopts the managed copy:
+
+```json
+{
+  "kind": "cpu",
+  "path": "C:\\\\tools\\\\llama-server.exe"
+}
+```
+
+Managed copies are stored below `%USERPROFILE%\\.vinollama\\bin` on Windows or `~/.vinollama/bin` on Linux. The endpoint never downloads binaries; it only copies a user-selected local executable after validation.
 
 ## Logs
 
